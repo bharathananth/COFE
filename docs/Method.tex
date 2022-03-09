@@ -1,0 +1,59 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{todonotes}
+\usepackage[left=2.5cm,right=2.5cm,top=2.5cm,bottom=2.5cm]{geometry}
+\renewcommand{\baselinestretch}{1.15}
+\author{Bharath Ananthasubramaniam}
+\title{Circular coupled (sparse) PCA}
+\begin{document}
+\maketitle
+This approach aims to find two loading vectors (LVs) such that the projection of the data matrix  on these two directions maximizes the projected variance and in addition principal components (PCs) satisfy an elliptical constraint.\todo{Is this better formulated/called a type of SVD or a type of PCA.}
+
+We now formalize this idea. The data of interest is $\textbf{X}$, a $n\times p$ matrix with $p$ features and $n$ samples. The coupled LVs are $\textbf{v}_1$ and $\textbf{v}_2$, each a $p\times 1$ vector, and the corresponding PCs are $\textbf{u}_1$ and $\textbf{u}_2$, each a $n \times 1$ vector. To obtain a variance interpretation for the projection, the data matrix $\textbf{X}$ is column-centered, $\sum_j X_{ij} = 0$.
+
+\subsection*{The general problem}
+
+We can formulate our approach as an optimization problem, similar to singular value decomposition, but with two key differences. First, we search for coupled PCs (two PCs simultaneously) that satisfy the elliptical constraint. Second, we do not enforce orthogonality of the two PCs.
+
+\begin{equation}
+\max \left\{ \textbf{u}_1^T \textbf{X} \textbf{v}_1 + \textbf{u}_2^T \textbf{X} \textbf{v}_2\right\} ~\textrm{s.t.}~ ||\textbf{v}_1||_2 = ||\textbf{v}_2||_2=1,~ {\textbf{u}_1^2}_i + {\textbf{u}_2^2}_i = 1~ \forall i\in \{1,\ldots,n\}
+\label{eqn:generalproblem}
+\end{equation}
+
+This transformation maps the data into the best possible approximate ellipse and the cost function maximizes the sum of the major and minor axis of this ellipse (note the sum is invariant to rotations of the ellipse).
+
+\subsubsection*{Solving this optimization}
+This equation is bi-convex in $\textbf{u}$s and $\textbf{v}$s \todo{how do we prove this?} and can be solved using alternate maximization.
+
+Given possible $\textbf{v}_1$, $\textbf{v}_2$, we can define dummy variables $\textbf{y}_1 = \textbf{X}\textbf{v}_1$ and $\textbf{y}_2 = \textbf{X}\textbf{v}_2$. The maximization for the $\textbf{u}$s can be carried out for each $i$ independently. We can maximize the cost function in \eqref{eqn:generalproblem} by choosing
+\begin{equation}
+{\textbf{u}_1}_i = \frac{{\textbf{y}_1}_i}{\sqrt{{\textbf{y}_1^2}_i + {\textbf{y}_2^2}_i}} ~~\textrm{and}~~ {\textbf{u}_2}_i = \frac{{\textbf{y}_2}_i}{\sqrt{{\textbf{y}_1^2}_i + {\textbf{y}_2^2}_i}}
+\label{eqn:solve_u}
+\end{equation}
+
+Given now a solution from \eqref{eqn:solve_u}, the solutions for $\textbf{v}$s that maximize the cost function can be computed independently simply as
+\begin{equation}
+ \textbf{v}_1 = \frac{\textbf{X}^T\textbf{u}_1}{||\textbf{X}^T\textbf{u}_1||_2} ~~\textrm{and}~~ \textbf{v}_2 = \frac{\textbf{X}^T\textbf{u}_2}{||\textbf{X}^T\textbf{u}_2||_2}
+ \label{eqn:solve_v}
+ \end{equation} 
+ 
+ We iterate \eqref{eqn:solve_u} and \eqref{eqn:solve_v} from a suitable random initial choice of vectors until convergence of $\textbf{u}$s and $\textbf{v}$s.
+ 
+\subsection*{The sparse problem}
+We can obtain more interpretable solutions by constraining the LVs to be suitably sparse. This introduces a hyperparameter $t$ controlling the sparsity of $\textbf{v}$s.
+
+\begin{multline}
+\max \left\{ \textbf{u}_1^T \textbf{X} \textbf{v}_1 + \textbf{u}_2^T \textbf{X} \textbf{v}_2\right\} \\~\textrm{s.t.}~ ||\textbf{v}_1||_2 = ||\textbf{v}_2||_2=1,~||\textbf{v}_1||_1\leq t, ||\textbf{v}_2||_1\leq t,~ {\textbf{u}_1^2}_i + {\textbf{u}_2^2}_i = 1~ \forall i\in \{1,\ldots,n\}
+\label{eqn:sparseproblem}
+\end{multline}
+
+\subsubsection*{Solving this optimization}
+This optimization \eqref{eqn:sparseproblem} is solved in a similar manner to the general problem \eqref{eqn:generalproblem}. Only the update equation \eqref{eqn:solve_v} for the $\textbf{v}$s differ as we also have to enforce the sparsity constraint. We solve the joint $\ell_1$ and $\ell_2$ constraint in a single step using the approach in Guillemot et al. (2019).
+
+
+
+\end{document}
