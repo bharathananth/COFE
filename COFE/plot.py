@@ -14,8 +14,8 @@ from biothings_client import get_client
 def plot_circular_ordering(results, time = None, **kwargs):
     sns.set_style("ticks")
     fig = mp.figure(**kwargs);
-    gs = gridspec.GridSpec(2, 2)
-    ax = fig.add_subplot(gs[0, 0]);
+    gs = gridspec.GridSpec(1, 3)
+    ax = fig.add_subplot(gs[0, 2]);
     if time is not None:
         ax.scatter((time % 24)/24, results['phase'], s=1)
         ax.set_aspect(1)
@@ -24,46 +24,47 @@ def plot_circular_ordering(results, time = None, **kwargs):
         ax.set_ylabel("predicted sample phase (in fractions of the period)")
 
     ax = fig.add_subplot(gs[0, 1]);
-    if time is not None:
-        sns.regplot(x=(time % 24)/24, y=results['CPCs'][:, 0], lowess=True, ax=ax)
-        sns.regplot(x=(time % 24)/24, y=results['CPCs'][:, 1], lowess=True, ax=ax)
-        ax.set_xlabel("predicted sample phase (in fractions of the period)")
-        ax.set_ylabel("circular principal components (in fractions of the period)")
-        sns.despine()
-
-    ax = fig.add_subplot(gs[1, 0]);
-    ax.scatter(results["transformed"]['x'], results["transformed"]['y'], s=1)
-    circ = mp.Circle((0, 0), radius=1, edgecolor='b', facecolor='None')
-    ax.add_patch(circ)
-    ax.set_aspect(1)
-    ax.set_xlabel("circularized principal component 1")
-    ax.set_ylabel("circularized principal component 2")
+    df = pd.DataFrame({'t': results['phase'], 
+                      'CPC1': results['CPCs'][:, 0],
+                      'CPC2': results['CPCs'][:, 1]})
+    df = df.melt(id_vars='t', var_name='var', value_name='val')
+    sns.scatterplot(x='t', y='val', hue='var', ax=ax, data=df)
+    ax.set_xlabel("predicted sample phase (in fractions of the period)")
+    ax.set_ylabel("circular principal components")
+    ax.set_xlim([0,1])
+    handles, labels = ax.get_legend_handles_labels()
+    ax.legend(handles=handles, labels=labels)
     sns.despine()
 
-    ax = fig.add_subplot(gs[1, 1]);
+    # ax = fig.add_subplot(gs[1, 0]);
+    # ax.scatter(results["transformed"]['x'], results["transformed"]['y'], s=1)
+    # circ = mp.Circle((0, 0), radius=1, edgecolor='b', facecolor='None')
+    # ax.add_patch(circ)
+    # ax.set_aspect(1)
+    # ax.set_xlabel("circularized principal component 1")
+    # ax.set_ylabel("circularized principal component 2")
+    # sns.despine()
+
+    ax = fig.add_subplot(gs[0, 0]);
     ax.scatter(results["CPCs"][:, 0], results["CPCs"][:, 1], s=1)
     ax.set_aspect(1)
     ax.set_xlabel("circularized principal component 1")
     ax.set_ylabel("circularized principal component 2")
     sns.despine()
+    fig.tight_layout()
 
 
-def plot_cv_run(cv_run, **kwargs):
+def plot_cv_run(results, **kwargs):
     sns.set_style("ticks");
-    df = pd.DataFrame.from_dict(cv_run)
-    df['t'] = cv_run['t_choices']
+    df = pd.DataFrame.from_dict({t: np.array(results['runs'][i]['test_se']).squeeze() for i, t in enumerate(results['t_choices'])})
+    df = pd.melt(df, var_name='t', value_name='se')
+
     fig = mp.figure(**kwargs)
-    ax = sns.pointplot(x="t", y="mean", data=df)
-    x_coords = []
-    y_coords = []
-    for point_pair in ax.collections:
-        for x, y in point_pair.get_offsets():
-            x_coords.append(x)
-            y_coords.append(y)
+    ax = sns.boxplot(x="t", y="se", data=df)
+    ax.set_yscale("log")
 
     # Calculate the type of error to plot as the error bars
     # Make sure the order is the same as the points were looped over
-    ax.errorbar(x_coords, y_coords, yerr=df["std"], fmt=' ', zorder=-1)
     ax.set_xlabel("Different choices of l1 constraint")
     ax.set_ylabel("Cross validation error")
     sns.despine()
@@ -90,20 +91,39 @@ def plot_diagnostics(X, feature_dim = 'row', **kwargs):
     ax = fig.add_subplot(gs[0, 2]);
     ax.hist(1/X.std(axis=axis), bins=50)
     ax.set_xlabel("Reciprocal standard deviation of the feature")
+    fig.tight_layout()
 
-def plot_markers(results, features, **kwargs):
+def plot_markers(results, translate=False, **kwargs):
     sns.set_style("ticks");
     fig = mp.figure(**kwargs);
 
-    df = pd.DataFrame(results["SLs"], index=features, columns=["X","Y"])
+    df = pd.DataFrame(results["SLs"], index=results["features"], columns=["X","Y"])
     df = df.loc[(df!=0).any(axis=1)].sort_index()
 
-    mg = get_client('gene')
-    symbols = mg.getgenes(df.index.values, as_dataframe=True, fields='symbol')
-    df.set_index(symbols["symbol"].values, inplace=True)
+    if translate:
+        mg = get_client('gene')
+        symbols = mg.getgenes(df.index.values, as_dataframe=True, fields='symbol')
+        df.set_index(symbols["symbol"].values, inplace=True)
 
     df.reset_index(level=0, inplace=True)
     df = pd.melt(df, id_vars="index", value_vars=['X','Y'], var_name="CPC")
-    ax = sns.catplot(x="value", y="index", data=df, col="CPC", kind="bar")
+    ax = sns.catplot(x="value", y="index", data=df, col="CPC", kind="bar", aspect=0.5)
     ax.set_xlabels("Loadings")
     ax.set_ylabels("Features")
+    fig.tight_layout()
+
+def print_markers(results, translate=False):
+    sns.set_style("ticks");
+
+    df = pd.DataFrame(results["SLs"], index=results["features"], columns=["X","Y"])
+    df = df.loc[(df!=0).any(axis=1)].sort_index()
+
+    if translate:
+        mg = get_client('gene')
+        symbols = mg.getgenes(df.index.values, as_dataframe=True, fields='symbol')
+        df.set_index(symbols["symbol"].values, inplace=True)
+
+    df.reset_index(level=0, inplace=True)
+    df = pd.melt(df, id_vars="index", value_vars=['X','Y'], var_name="CPC")
+
+    return(df["index"].unique())
