@@ -7,14 +7,14 @@ import numpy as np
 from numpy.linalg.linalg import norm
 from warnings import warn
 
-def coupled_spca(X, t=float('inf'), tol=1e-3, max_iter=500):
+def coupled_spca(X, t=float('inf'), tol=1e-3, max_iter=200, feature_std=None, verbose=False):
     """Generates a pair of sparse loading vectors that satisfy the circular constraints.
 
     Args:
         X (ndarray): 2D numpy array with features along columns and samples
             along rows. All columns should be centered to have zero mean.
         t (float): l1 norm constraint that determines level of sparsity. Defaults to 1e6 (no constraint).
-        tol (float): Measure of SPCA algorithm convergence. Defaults to 1e-6.
+        tol (float): Measure of SPCA algorithm convergence. Defaults to 1e-3.
         max_iter (int): The maximum of iterations to run in the biconvex optimization. Defaults to 250.
         
     Returns:
@@ -27,18 +27,26 @@ def coupled_spca(X, t=float('inf'), tol=1e-3, max_iter=500):
                 'U2': 2D numpy array with circular left eigenvectors as columns
             }
     """
-    rng = np.random.default_rng()
+    rng = np.random.default_rng()    
     v_1 = rng.standard_normal(size = (X.shape[1],1))
+    if feature_std is not None:
+        if feature_std.shape[0] != X.shape[1]:
+            raise ValueError("Feature standard deviations not the same size as feature.")
+        v_1 = v_1 * feature_std
     v_1 = v_1/np.linalg.norm(v_1, ord=2)
     v_2 = rng.standard_normal(size = (X.shape[1],1))
+    if feature_std is not None:
+        if feature_std.shape[0] != X.shape[1]:
+            raise ValueError("Feature standard deviations not the same size as feature.")
+        v_2 = v_2 * feature_std
     v_2 = v_2/np.linalg.norm(v_2, ord=2)
 
-    u_1 = rng.standard_normal(size = (X.shape[0],1))
-    u_2 = rng.standard_normal(size = (X.shape[0],1))
-    u_1 = u_1/np.sqrt(u_1 ** 2 + u_2 ** 2)
-    u_2 = u_2/np.sqrt(u_1 ** 2 + u_2 ** 2)
+    phi = 2*np.pi*rng.random(size = (X.shape[0],1))
+    u_1 = np.cos(phi)
+    u_2 = np.sin(phi)
     
-    count = score = 0
+    count = 0
+    score = -1.0
     
     while count < max_iter:
         y_1 = X @ v_1
@@ -72,11 +80,10 @@ def coupled_spca(X, t=float('inf'), tol=1e-3, max_iter=500):
         
         count += 1
     
-    if count == max_iter:
+    if count == max_iter and verbose:
         warn("Iterations did not converge to within the tolerance.")
 
-
-    return {'V': np.hstack([v_1, v_2]), 'U': np.hstack([u_1, u_2]), 'converged': (count<max_iter), 'score': score}
+    return {'V': np.hstack((v_1, v_2)), 'U': np.hstack((u_1, u_2)), 'converged': (count<max_iter), 'score': score}
 
 def _opt_thresh(x, t):
     """Finds the optimal soft-thresholding to satisfy both l1 and l2 contraints
