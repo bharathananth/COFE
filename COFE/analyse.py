@@ -8,8 +8,11 @@ import pandas as pd
 from COFE.spca import *
 from COFE.ellipse import *
 import concurrent.futures
+from joblib import Parallel, delayed
+from multiprocessing import cpu_count
 
-def process_data(X, features, feature_dim='row', mean_threshold=None, scaling_threshold=None):
+
+def process_data(X, features, feature_dim='row', mean_threshold=None, scaling_threshold=None, impute=True):
     """Function to process data prior to analysis.
 
     Applies centering, filtering and scaling operations to data. 
@@ -57,61 +60,35 @@ def process_data(X, features, feature_dim='row', mean_threshold=None, scaling_th
             X_ = X_[:, keep]
         
     # Imputing extreme values
-    upper_bound = np.percentile(X_, 97.5, axis=axis, keepdims=True)
-    lower_bound = np.percentile(X_, 2.5, axis=axis, keepdims=True)
-    X_ = np.maximum(np.minimum(X_, upper_bound), lower_bound)
+    if impute:
+        upper_bound = np.percentile(X_, 97.5, axis=axis, keepdims=True)
+        lower_bound = np.percentile(X_, 2.5, axis=axis, keepdims=True)
+        X_ = np.maximum(np.minimum(X_, upper_bound), lower_bound)
 
     # Always center data to have zero mean
     X_ = X_ - np.mean(X_, axis=axis, keepdims=True)
 
     # Standardise every gene series to have variance of 1
-    X_ = X_ / np.std(X_, axis=axis, keepdims=True)
+    std_ = np.std(X_, axis=axis, keepdims=True)
+    X_ = X_ / std_
 
     if axis == 1:
         X_ = X_.T
+    else:
+        std_ = std_.T
     
-    return (X_, features_)
+    return (X_, features_, std_)
 
-def train_test_split(num_samples, num_folds):
-    """Defines how data is split into test and training sets.
-    Method to create num_folds pairs of lists. Each pair has a list which 
-    contains indices of samples to be included in test set, and another list
-    which contains indices of samples to be included in training set.
+def multi_start(X, t=float('inf'), feature_std=None, restarts=3, tol=1e-4, max_iter=200, ncores=None):
+    if ncores is None:
+        ncores = cpu_count()
+    
+    runs = Parallel(n_jobs=ncores)(delayed(coupled_spca)(X, t=t, tol=tol, max_iter=max_iter, feature_std=feature_std) for _ in range(restarts))
 
-    Parameters
-    ----------
-    num_samples : int
-        Total number of samples.
-    num_folds : int
-        Number of test-training pairs to be found.
-
-    Returns
-    -------
-    list of dicts
-        each dict contains a pair of indices for training ('train') and testing ('test')
-
-    Raises
-    ------
-    ValueError
-        If num_samples is less than num_folds
-    """
- 
-    if num_samples < num_folds:
-        raise ValueError("Can't have fewer samples than folds.")
-
-    rng = np.random.default_rng()
-    fold_index = np.arange(num_samples) % num_folds
-    samples = np.arange(num_samples)
-    rng.shuffle(samples)
-    test_train_pairs = [{'train': samples[fold_index!=i], 'test': samples[fold_index==i]} for i in np.arange(5)]
-    return test_train_pairs
-
-def multi_start(X, t=float('inf'), restarts=3, tol=1e-4, max_iter=500):
-    runs = [coupled_spca(X, t=t, tol=tol, max_iter=max_iter) for i in range(restarts)]
     ind = np.argmax([r['score'] for r in runs])
     return runs[ind]
 
-def circular_ordering(X, t, restarts=3, true_times=None):
+def circular_ordering(X, t, feature_std=None, restarts=3, true_times=None, tol=1e-4):
     """Function to fit ellipse to SPCA principal components.
 
     Function to find the circular PCs for the chosen l1 sparsity constrain and computes MAPE for ordering if true_times is provided
@@ -129,31 +106,22 @@ def circular_ordering(X, t, restarts=3, true_times=None):
         are corresponding quantities.
     """
 
-    decomp = multi_start(X, t=t, restarts=restarts)
+    decomp = multi_start(X, t=t, feature_std=feature_std, restarts=restarts, tol=tol)
     U = decomp['U']
     V = decomp['V']
 
     Y = X @ V
-
-    try:
-        theta = direct_ellipse_est(Y[:, 0], Y[:, 1])
-        geo_param = algebraic_to_geometric(theta)
-        transformed = transform(Y[:, 0], Y[:, 1], geo_param)
-        mse = np.median(ellipse_metrics(Y[:, 0], Y[:, 1], theta, metric='geoSE'))
-    except ValueError:
-        return None
     
     mape_value = np.nan
     pred_phase = np.nan
-    if true_times is not None:
-        mape_value, pred_phase = calculate_mape(transformed['x'], transformed['y'], true_times)
+    mape_value, pred_phase = calculate_mape(Y, true_times)
 
-    result = {"phase": pred_phase, "MAPE": mape_value, "CPCs": Y, "SLs": V, 
-              "MSE": mse, "score": decomp['score'], "transformed": transformed}
+    result = {'phase': pred_phase, 'MAPE': mape_value, 'CPCs': Y, 'SLs': V, 'true_times': true_times,
+              'MSE': np.nan, 'score': decomp['score']}
 
     return result
 
-def cross_validate(X, t_choices, num_folds = 5, restarts=3, metric = 'geoSE', tol=1e-4, max_iter=500):
+def cross_validate(X, t_choices, choice='min', true_times = None, features=None, feature_std=None, restarts=3, tol=1e-4, max_iter=200):
     """Calculates mean and standard deviation of cross validation standard errors.
 
     Calculates squared errors on a test set after transforming it using geometric 
@@ -174,32 +142,42 @@ def cross_validate(X, t_choices, num_folds = 5, restarts=3, metric = 'geoSE', to
     Raises:
         ValueError: If x_vector and y_vector aren't the same length.
     """
-    test_train_pairs = train_test_split(X.shape[0], num_folds)
     # Cross-validation
-    se_values = [[_calculate_se(X, t, pair['test'], pair['train'], restarts=restarts, metric=metric, tol=tol, max_iter=max_iter) for pair in test_train_pairs] for t in t_choices]
-    se_values = [np.concatenate(s) for s in se_values]
-    mean_se = np.array([np.mean(s) for s in se_values])
-    std_se = np.array([np.std(s) for s in se_values])
-    ind = np.argmin(mean_se)
-    if not np.isscalar(ind):
-        print(ind)
-    best_t = t_choices[ind]
-    if np.any(np.logical_and(mean_se > mean_se[ind] + std_se[ind], t_choices<best_t)):
-        best_t_1sd = t_choices[np.logical_and(mean_se > mean_se[ind] + std_se[ind], t_choices<best_t)][-1]
-    else: 
-        best_t_1sd = t_choices[0]
+    run_t = [_calculate_se(X, t, feature_std, restarts, tol, max_iter) for t in t_choices]
+    mean_se = np.array([np.quantile(s['test_se'], 0.75) for s in run_t])
+    std_se = np.array([np.std(s['test_se']) for s in run_t])    
+    ind_min = np.argmin(mean_se)
+    
+    if choice == '1sd':
+        if np.any(np.logical_and(mean_se > mean_se[ind_min] + std_se[ind_min], t_choices<t_choices[ind_min])):
+            ind  = np.where(np.logical_and(mean_se > mean_se[ind_min] + std_se[ind_min], t_choices<t_choices[ind_min]))[0][-1]
+        else:
+            ind = 0
+    else:
+        ind = ind_min
 
-    return {'mean': mean_se, 'std': std_se, 'best_t': best_t, 'best_t_1sd': best_t_1sd, 't_choices': t_choices}
+    decomp = run_t[ind]
+    U = decomp['U']
+    V = decomp['V']
+
+    Y = X @ V
+
+    mape_value = np.nan
+    pred_phase = np.nan
+    mape_value, pred_phase = calculate_mape(Y, true_times)
+
+    return {'best_t': t_choices[ind], 't_choices': t_choices, 'runs': run_t,
+            'MAPE': mape_value, 'phase': pred_phase, 'MSE': np.mean(decomp['test_se']), 'score': decomp['score'],
+            'CPCs': Y, 'SLs': V, 'features': features}
 
 # INTERNAL FUNCTIONS
 
-def _calculate_se(X, t, test, train, restarts, metric, tol, max_iter):
-    decomp = multi_start(X[train, :], t, restarts=restarts, tol=tol, max_iter=max_iter)
+def _calculate_se(X, t, feature_std, restarts, tol, max_iter):
+    decomp = multi_start(X, t, restarts=restarts, tol=tol, max_iter=max_iter)
     Y = X @ decomp['V']
     try:
-        theta = direct_ellipse_est(Y[train, 0], Y[train, 1])
+        theta = direct_ellipse_est(Y[:, 0], Y[:, 1])
     except ValueError:
         return None
-    
-    test_se = ellipse_metrics(Y[test, 0], Y[test, 1], theta, metric=metric)
-    return(test_se)
+    decomp['test_se'] = ellipse_metrics(Y[:, 0], Y[:, 1], theta)
+    return(decomp)
