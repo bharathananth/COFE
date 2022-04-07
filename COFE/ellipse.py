@@ -5,9 +5,12 @@ for best elliptical fit, unsupervised ellipse evaluation metrics, and quantity
 that evaluates ellipse reordering potential.
 """
 
+from matplotlib.pyplot import axis
 import numpy as np
+from sklearn import linear_model
+from sklearn.metrics import explained_variance_score
 
-def ellipse_metrics(x_vector, y_vector, theta, metric='geoSE'):
+def ellipse_metrics(x_vector, y_vector, theta):
     """Returns different error metrics on the samples for a particular elliptical fit.
 
     Parameters
@@ -19,7 +22,7 @@ def ellipse_metrics(x_vector, y_vector, theta, metric='geoSE'):
     theta : ndarray
         1D array of algebraic ellipse equation parameters [a, b, c, d, e, f]
     metric : str, optional
-        metric of choice, by default 'geoSE'
+        metric of choice, by default 'focidistSE'
 
     Returns
     -------
@@ -41,17 +44,13 @@ def ellipse_metrics(x_vector, y_vector, theta, metric='geoSE'):
     x = x_vector.reshape((x_vector.shape[0], 1))
     y = y_vector.reshape((y_vector.shape[0], 1))
 
-    if metric == "algSE":
-        A = np.hstack([x**2, x * y, y**2, x, y, np.ones_like(x)])
-        se = np.dot(A, theta) ** 2
-    elif metric == "geoSE": 
-        geo_param = algebraic_to_geometric(theta)
-        transformed = transform(x_vector, y_vector, geo_param)
-        se = (1 - (transformed['x'] ** 2 + transformed['y'] ** 2) ** 0.5) ** 2
-    elif metric == "signSE":
-        geo_param = algebraic_to_geometric(theta)
-        transformed = transform(x_vector, y_vector, geo_param)
-        se = 1 - (transformed['x'] ** 2 + transformed['y'] ** 2)
+    geo_param = algebraic_to_geometric(theta)
+    c = np.sqrt(geo_param[1]**2 - geo_param[0]**2)
+    focus1 = np.array([geo_param[2] + c * np.cos(geo_param[4]), geo_param[3] + c * np.sin(geo_param[4])])
+    focus2 = np.array([geo_param[2] - c * np.cos(geo_param[4]), geo_param[3] - c * np.sin(geo_param[4])])
+    p = np.sqrt(np.square(x - focus1[0]) + np.square(y - focus1[1]))
+    q = np.sqrt(np.square(x - focus2[0]) + np.square(y - focus2[1]))
+    se = (p + q - 2 * geo_param[1]) ** 2 / (geo_param[1] * geo_param[0]) * 2 * p * q /( (p + q) ** 2 - 4* c**2)
     return se
 
 def algebraic_to_geometric(theta):
@@ -233,7 +232,7 @@ def transform(x_vector, y_vector, geo_param):
     y_transformed = y_rotated/minor
     return {'x': x_transformed.flatten(), 'y': y_transformed.flatten()}
 
-def calculate_mape(x_transformed, y_transformed, true_times=None, period=24):
+def calculate_mape(Y, true_times=None, period=24):
     """Function to calculate mean absolute position error.
 
     Args:
@@ -247,21 +246,33 @@ def calculate_mape(x_transformed, y_transformed, true_times=None, period=24):
     Returns:
         Tuple with a float representing mean absolute position error and an array of predicted phases.
     """
+    try:
+        theta = direct_ellipse_est(Y[:, 0], Y[:, 1])
+        minor, major, center_x, center_y, tilt = algebraic_to_geometric(theta)
+    except ValueError:
+        return None
+
     # Scaled angular positions
-    acw_angles, cw_angles = _scaled_angles(x_transformed, y_transformed)
-    # Scaled time values
-    scaled_time = true_times/period - true_times//period
-    # Choosing direction (bias variation)
-    acw_bias = _delta(acw_angles, scaled_time)
-    cw_bias = _delta(cw_angles, scaled_time)
-    # Optimal direction is direction with lowest bias value std dev
-    if _angular_spread(np.cos(2*np.pi*acw_bias), np.sin(2*np.pi*acw_bias)) < \
-            _angular_spread(np.cos(2*np.pi*cw_bias), np.sin(2*np.pi*cw_bias)):
-        adjusted_opt_angles = (acw_angles - _angular_mean(np.cos(2*np.pi*acw_bias), np.sin(2*np.pi*acw_bias))) % 1
+    acw_angles, cw_angles = _scaled_angles((Y[:, 0] - center_x)/major, (Y[:, 1] - center_y)/minor)
+    if true_times is not None:
+        try: 
+            # Scaled time values
+            scaled_time = true_times/period - true_times//period
+            # Choosing direction (bias variation)
+            acw_bias = _delta(acw_angles, scaled_time)
+            cw_bias = _delta(cw_angles, scaled_time)
+            # Optimal direction is direction with lowest bias value std dev
+            if _angular_spread(np.cos(2*np.pi*acw_bias), np.sin(2*np.pi*acw_bias)) < \
+                _angular_spread(np.cos(2*np.pi*cw_bias), np.sin(2*np.pi*cw_bias)):
+                adjusted_opt_angles = (acw_angles - _angular_mean(np.cos(2*np.pi*acw_bias), np.sin(2*np.pi*acw_bias))) % 1
+            else:
+                adjusted_opt_angles = (cw_angles - _angular_mean(np.cos(2*np.pi*cw_bias), np.sin(2*np.pi*cw_bias))) % 1
+            mape_value = np.mean(np.abs(_delta(scaled_time, adjusted_opt_angles))) if true_times is not None else np.nan
+        except RuntimeWarning:
+            mape_value = np.nan
     else:
-        adjusted_opt_angles = (cw_angles - _angular_mean(np.cos(2*np.pi*cw_bias), np.sin(2*np.pi*cw_bias))) % 1
-    
-    mape_value = np.mean(np.abs(_delta(scaled_time, adjusted_opt_angles))) if true_times is not None else np.nan
+        mape_value = np.nan
+        adjusted_opt_angles = acw_angles
     return (mape_value, adjusted_opt_angles)
 
 # INTERNAL FUNCTIONS
@@ -353,3 +364,84 @@ def _direct_ellipse_fit(data):
     a = a/np.linalg.norm(a, ord=2)
 
     return a
+
+def gradient(x, y, s, beta):
+    """From Yu, Kulkarni & Poor(2012)
+
+    Parameters
+    ----------
+    x : _type_
+        _description_
+    y : _type_
+        _description_
+    s : _type_
+        _description_
+    beta : _type_
+        _description_
+
+    Returns
+    -------
+    _type_
+        _description_
+    """
+
+    c1x, c1y, c2x, c2y, a= s[0], s[1], s[2], s[3], s[4]
+    p = np.sqrt((x - c1x) ** 2 + (y - c1y) ** 2)
+    q = np.sqrt((x - c2x) ** 2 + (y - c2y) ** 2)
+    r = np.sqrt((c1x - c2x) ** 2 + (c1y - c2y) ** 2)
+    g = np.zeros((5,))
+    t1 = p + q - 2*a
+    t2 = 2 * p * q + beta * (p**2 + q**2 - r**2)
+    g[0] = np.mean((2 * q * t1 ** 2 * (c1x - x))/(p * t2) - 4 * q * t1 ** 2 * (q * (c1x - x) + beta * p * (c2x - x)) / t2**2 + 4 * q * t1 * (c1x - x)/t2)
+    g[1] = np.mean((2 * q * t1 ** 2 * (c1y - y))/(p * t2) - 4 * q * t1 ** 2 * (q * (c1y - y) + beta * p * (c2y - y)) / t2**2 + 4 * q * t1 * (c1y - y)/t2)
+    g[2] = np.mean((2 * p * t1 ** 2 * (c2x - x))/(q * t2) - 4 * p * t1 ** 2 * (p * (c2x - x) + beta * q * (c1x - x)) / t2**2 + 4 * p * t1 * (c2x - x)/t2)
+    g[3] = np.mean((2 * p * t1 ** 2 * (c2y - y))/(q * t2) - 4 * p * t1 ** 2 * (p * (c2y - y) + beta * q * (c1y - y)) / t2**2 + 4 * p * t1 * (c2y - y)/t2)
+    g[4] = np.mean( -8 * p * q * t1 / t2)
+    return g
+
+def cost(x, y, s, beta):
+    """From Yu, Kulkarni & Poor(2012)
+
+    Parameters
+    ----------
+    x : _type_
+        _description_
+    y : _type_
+        _description_
+    s : _type_
+        _description_
+    beta : _type_
+        _description_
+
+    Returns
+    -------
+    _type_
+        _description_
+    """
+    c1x, c1y, c2x, c2y, a = s[0], s[1], s[2], s[3], s[4]
+    p = np.sqrt((x - c1x) ** 2 + (y - c1y) ** 2)
+    q = np.sqrt((x - c2x) ** 2 + (y - c2y) ** 2)
+    r = np.sqrt((c1x - c2x) ** 2 + (c1y - c2y) ** 2)
+    return np.mean((p + q - 2*a) ** 2 * 2 * p * q/ ((p ** 2 + q ** 2 - r ** 2) * beta + 2 * p * q))
+
+def gradient_descent(x, y, learning_rate = 0.01, iterations = 200, convergence=1e-4):
+    # theta = COFE.ellipse.direct_ellipse_est(x,y)
+    # geo_param = COFE.ellipse.algebraic_to_geometric(theta)
+    # c = np.sqrt(geo_param[1]**2 - geo_param[0]**2)
+    # focus1 = np.array([geo_param[2] + c * np.cos(geo_param[4]), geo_param[3] + c * np.sin(geo_param[4])])
+    # focus2 = np.array([geo_param[2] - c * np.cos(geo_param[4]), geo_param[3] - c * np.sin(geo_param[4])])
+    # s = np.array([focus1[0], focus1[1], focus2[0], focus2[1], geo_params[1]])
+    s = np.array([np.mean(x) - np.std(x), np.mean(y) - np.std(y), np.mean(x) + np.std(x), np.mean(y) + np.std(y), 3*np.std(x) + 3*np.std(y)])
+    beta = 0
+    last_cost = cost(x, y, s, beta)
+    for it in range(iterations):
+        s = s -  learning_rate * gradient(x, y, s, beta)
+        delta_cost = cost(x, y, s, beta) - last_cost
+        betahat = 0.6 * beta  + 0.4 * 2/ np.pi * np.arctan(0.001/np.abs(delta_cost))
+        last_cost = delta_cost + last_cost
+        if betahat >= beta:
+            beta = betahat
+        print([delta_cost, beta])
+        if np.abs(delta_cost) < convergence:
+            break;
+    return s
