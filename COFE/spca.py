@@ -7,41 +7,63 @@ import numpy as np
 from numpy.linalg.linalg import norm
 from warnings import warn
 
-def coupled_spca(X, t=float('inf'), tol=1e-3, max_iter=200, feature_std=None, verbose=False):
+from COFE.ellipse import direct_ellipse_est, ellipse_metrics
+
+def coupled_spca(X, t=float('inf'), tol=1e-3, max_iter=100, feature_std=None, verbose=False):
     """Generates a pair of sparse loading vectors that satisfy the circular constraints.
 
-    Args:
-        X (ndarray): 2D numpy array with features along columns and samples
-            along rows. All columns should be centered to have zero mean.
-        t (float): l1 norm constraint that determines level of sparsity. Defaults to 1e6 (no constraint).
-        tol (float): Measure of SPCA algorithm convergence. Defaults to 1e-3.
-        max_iter (int): The maximum of iterations to run in the biconvex optimization. Defaults to 250.
-        
-    Returns:
+    Parameters
+    ----------
+    X : ndarray
+       data matrix with features along columns and samples along rows.
+    t : float, optional
+        l1 norm constraint that determines level of sparsity, by default float('inf')
+    tol : float, optional
+        convergence criterion for the iterative algorithm, by default 1e-3
+    max_iter : int, optional
+        maximum number of iterations to look for convergence, by default 100
+    feature_std : array-like, optional
+        weights for the different features that determine the st. dev. of the random initial conditions, by default None
+    verbose : bool, optional
+        whether to print convergence information, by default False
 
-        Dict with sparse loading vector matrix and orthogonal SPCA principal 
-        components matrix::
+    Returns
+    -------
+    dict
+        {
+            'V': ndarray 
+                sparse right eigenvectors as columns,
+            'U': ndarray
+                circular left eigenvectors as columns,
+            'converged': bool
+                if the iterations converged
+            'score': float
+                final score after convergence. With no convergence, score is set to -1.
+        }
 
-            {
-                'V1': 2D numpy array with sparse right eigenvectors as columns,
-                'U2': 2D numpy array with circular left eigenvectors as columns
-            }
-    """
+    Raises
+    ------
+    ValueError
+        _description_
+    ValueError
+        _description_
+    """        
+    
     rng = np.random.default_rng()    
-    v_1 = rng.standard_normal(size = (X.shape[1],1))
+    v_1 = rng.uniform(low=-1.0, high=1.0, size = (X.shape[1],1))
     if feature_std is not None:
         if feature_std.shape[0] != X.shape[1]:
             raise ValueError("Feature standard deviations not the same size as feature.")
         v_1 = v_1 * feature_std
     v_1 = v_1/np.linalg.norm(v_1, ord=2)
-    v_2 = rng.standard_normal(size = (X.shape[1],1))
+    v_2 = rng.uniform(low=-1.0, high=1.0, size = (X.shape[1],1))
     if feature_std is not None:
         if feature_std.shape[0] != X.shape[1]:
             raise ValueError("Feature standard deviations not the same size as feature.")
         v_2 = v_2 * feature_std
     v_2 = v_2/np.linalg.norm(v_2, ord=2)
 
-    phi = 2*np.pi*rng.random(size = (X.shape[0],1))
+    phi = rng.uniform(low=0.0, high=2*np.pi, size = (X.shape[0],1))
     u_1 = np.cos(phi)
     u_2 = np.sin(phi)
     
@@ -75,7 +97,7 @@ def coupled_spca(X, t=float('inf'), tol=1e-3, max_iter=200, feature_std=None, ve
         v_2 = v_2_n
 
         if u_1_diff < tol and u_2_diff < tol and v_1_diff < tol and v_2_diff < tol:
-            score = np.asscalar(u_1.T @ X @ v_1 + u_2.T @ X @ v_2)
+            score = np.asscalar((u_1.T @ X @ v_1) + (u_2.T @ X @ v_2) - (u_1.T @ u_2) * (v_1.T @ v_2))
             break
         
         count += 1
@@ -122,21 +144,26 @@ def _opt_thresh(x, t):
 
 def _soft_thresh(x, l):
     """Soft-thresholding function.
-
     Method to reduce absolute values of vector entries by a specifc quantity.
 
-    Args:
-        x (ndarray): 1D vector
-        l (float): Positive quantity by which to reduce absolute value of
-            each entry in x.
+    Parameters
+    ----------
+    x : ndarray
+        1D vectors of values
+    l : float
+        positive quantity by which to reduce absolute value of each entry of x
 
-    Returns:
+    Returns
+    -------
+    ndarray
+        adjusted input vector
 
-        ndarray of adjusted input vector.
-
-    Raises:
-        ValueError: If thresholding quantity is not positive.
-    """
+    Raises
+    ------
+    ValueError
+        if thresholding quantity is not positive
+    """    
+    
     if l < 0:
         raise ValueError("Thresholding quantity must be non-negative.")
     x_tilde = np.abs(x)
