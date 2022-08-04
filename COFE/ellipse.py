@@ -180,7 +180,7 @@ def calculate_mape(Y, true_times=None, period=24):
     else:
         mape_value = np.nan
         adjusted_opt_angles = acw_angles
-    return (mape_value, adjusted_opt_angles, np.median(np.abs(_delta(scaled_time, adjusted_opt_angles))))
+    return (mape_value, adjusted_opt_angles)
 
 # INTERNAL FUNCTIONS
 

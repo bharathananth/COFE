@@ -144,7 +144,7 @@ def circular_ordering(X, t, feature_std=None, restarts=3, true_times=None, featu
 
     return result
 
-def cross_validate(X, t_choices, choice='min', true_times=None, features=None, feature_std=None, hold=None, restarts=3, tol=1e-3, max_iter=100):
+def cross_validate(X, t_choices, choice='min', true_times=None, features=None, feature_std=None, hold=None, restarts=5, tol=1e-3, max_iter=100, ncores=None):
     """Calculates the median squared error and its standard deviation for different choices of sparsity threshold 't'
 
     Parameters
@@ -164,11 +164,13 @@ def cross_validate(X, t_choices, choice='min', true_times=None, features=None, f
     hold : float, optional
         the fraction of samples to withhold as test set to estimate performance at each l1 threshold value, by default None
     restarts : int, optional
-        the number of random initial conditions to , by default 3
+        the number of random initial conditions to begin alternating maximization from, by default 5
     tol : _type_, optional
         convergence threshold for the alternating maximization of circular sparse PCA, by default 1e-3
     max_iter : int, optional
         maximum number of iterations of the alternating maximization, by default 100
+    ncores : int, optional
+        number of cores to use for parallel computation of the multistarts, by default None, which computes serially. See joblib.Parallel for convention.
 
     Returns
     -------
@@ -211,7 +213,7 @@ def cross_validate(X, t_choices, choice='min', true_times=None, features=None, f
             raise("hold must be a number between 0 and 1")
 
     # Cross-validation
-    run_t = [_calculate_se(X, t, feature_std, restarts, tol, max_iter, train_indices, test_indices) for t in t_choices]
+    run_t = [_calculate_se(X, t, feature_std, restarts, tol, max_iter, train_indices, test_indices, ncores) for t in t_choices]
     med_se = np.array([np.median(s['test_se']) for s in run_t])
     std_se = np.array([np.std(s['test_se']) for s in run_t])    
     ind_min = np.argmin(med_se)
@@ -232,17 +234,17 @@ def cross_validate(X, t_choices, choice='min', true_times=None, features=None, f
 
     mape_value = np.nan
     pred_phase = np.nan
-    mape_value, pred_phase, acw = calculate_mape(Y, true_times)
+    mape_value, pred_phase = calculate_mape(Y, true_times)
 
     return {'best_t': t_choices[ind], 't_choices': t_choices, 'runs': run_t,
             'MAPE': mape_value, 'phase': pred_phase, 'true_times': true_times, 'MSE': med_se[ind_min], 'score': decomp['score'],
-            'CPCs': Y, 'SLs': V, 'features': features, 'acw': acw}
+            'CPCs': Y, 'SLs': V, 'features': features}
 
 # INTERNAL FUNCTIONS
 
-def _calculate_se(X, t, feature_std, restarts, tol, max_iter, train_indices, test_indices):
+def _calculate_se(X, t, feature_std, restarts, tol, max_iter, train_indices, test_indices, ncores):
     if train_indices is None or test_indices is None:
-        decomp = _multi_start(X, t, feature_std, restarts=restarts, tol=tol, max_iter=max_iter)
+        decomp = _multi_start(X, t, feature_std, restarts=restarts, tol=tol, max_iter=max_iter, ncores=ncores)
         Y = X @ decomp['V']
         try:
             geo_param = direct_ellipse_est(Y[:, 0], Y[:, 1])
@@ -250,7 +252,7 @@ def _calculate_se(X, t, feature_std, restarts, tol, max_iter, train_indices, tes
             return None
         decomp['test_se'] = ellipse_metrics(Y[:, 0], Y[:, 1], geo_param)
     else:
-        decomp = _multi_start(X[train_indices, :], t, feature_std, restarts=restarts, tol=tol, max_iter=max_iter)
+        decomp = _multi_start(X[train_indices, :], t, feature_std, restarts=restarts, tol=tol, max_iter=max_iter, ncores=ncores)
         Y = X @ decomp['V']
         try:
             geo_param = direct_ellipse_est(Y[train_indices, 0], Y[train_indices, 1])
@@ -259,11 +261,11 @@ def _calculate_se(X, t, feature_std, restarts, tol, max_iter, train_indices, tes
         decomp['test_se'] = ellipse_metrics(Y[test_indices, 0], Y[test_indices, 1], geo_param)
     return(decomp)
 
-def _multi_start(X, t, feature_std, restarts, tol, max_iter, ncores=None):
+def _multi_start(X, t, feature_std, restarts, tol, max_iter, ncores):
     if ncores is None:
-        ncores = cpu_count()
-    
-    runs = Parallel(n_jobs=ncores)(delayed(coupled_spca)(X, t=t, tol=tol, max_iter=max_iter, feature_std=feature_std) for _ in range(restarts))
+        runs = [coupled_spca(X, t=t, tol=tol, max_iter=max_iter, feature_std=feature_std) for _ in range(restarts)]
+    else:
+        runs = Parallel(n_jobs=ncores)(delayed(coupled_spca)(X, t=t, tol=tol, max_iter=max_iter, feature_std=feature_std) for _ in range(restarts))
 
     ind = np.argmax([r['score'] for r in runs])
     return runs[ind]
