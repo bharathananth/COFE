@@ -5,10 +5,8 @@ for best elliptical fit, unsupervised ellipse evaluation metrics, and quantity
 that evaluates ellipse reordering potential.
 """
 
-from matplotlib.pyplot import axis
 import numpy as np
-from sklearn import linear_model
-from sklearn.metrics import explained_variance_score
+import scipy
 
 def ellipse_metrics(x_vector, y_vector, geo_param):
     """Compute the ellipse fitting error based on direct ellipse fitting and orthogonal error-like correct error metric from Yu et al. (2012)
@@ -106,7 +104,7 @@ def direct_ellipse_est(x_vector, y_vector):
     # a, b, c, d, e, f
     theta = np.block([C[0, 0], C[0, 1] * 2, C[1, 1], 
                         C[0, 2] * 2, C[1, 2] * 2, C[2, 2]])
-    theta = theta/np.linalg.norm(theta, ord=2)
+    theta = theta/scipy.linalg.norm(theta, ord=2)
 
     return _algebraic_to_geometric(theta)
 
@@ -240,20 +238,20 @@ def _direct_ellipse_fit(data):
     # Linear part of scatter mat
     S3 = D2.T @ D2
     # getting a2 from a1
-    T = -np.linalg.solve(S3, S2.T)
+    T = -scipy.linalg.solve(S3, S2.T)
     # Reduce scatter
     M = S1 + S2 @ T
     # Premultiply by inv(C1)
     M = np.block([[M[2, :]/2], [-M[1, :]], [M[0, :]/2]])
     # solve eigensystem
-    eVal, eVec = np.linalg.eig(M)
+    eVal, eVec = scipy.linalg.eig(M)
     # evaluate a.TCa
     cond = 4 * eVec[0, :] * eVec[2, :] - eVec[1, :] ** 2
     # evec for min pos eval
     al = eVec[:, np.argwhere(cond > 0).flatten()]
     # Ellipse coefficients
     a = np.block([[al], [T @ al]]).flatten()
-    a = a/np.linalg.norm(a, ord=2)
+    a = a/scipy.linalg.norm(a, ord=2)
 
     return a
 

@@ -3,14 +3,11 @@
 This module contains functions to process data, analyse data using sparse 
 loading vectors, and analyse data using SPCA principal components.
 """
-from cgi import test
 import numpy as np
 import pandas as pd
 from COFE.spca import *
 from COFE.ellipse import *
-import concurrent.futures
-from joblib import Parallel, delayed
-from multiprocessing import cpu_count
+import joblib
 
 
 def process_data(X, features, feature_dim='row', mean_threshold=None, scaling_threshold=None, impute=None):
@@ -265,7 +262,7 @@ def _multi_start(X, t, feature_std, restarts, tol, max_iter, ncores):
     if ncores is None:
         runs = [coupled_spca(X, t=t, tol=tol, max_iter=max_iter, feature_std=feature_std) for _ in range(restarts)]
     else:
-        runs = Parallel(n_jobs=ncores)(delayed(coupled_spca)(X, t=t, tol=tol, max_iter=max_iter, feature_std=feature_std) for _ in range(restarts))
+        runs = joblib.Parallel(n_jobs=ncores)(joblib.delayed(coupled_spca)(X, t=t, tol=tol, max_iter=max_iter, feature_std=feature_std) for _ in range(restarts))
 
     ind = np.argmax([r['score'] for r in runs])
     return runs[ind]

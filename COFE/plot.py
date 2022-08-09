@@ -4,12 +4,10 @@ This module contains functions to ....
 """
 
 import numpy as np
-import matplotlib.pyplot as mp
+import matplotlib as mp
 import seaborn as sns
 import pandas as pd
-import matplotlib.gridspec as gridspec
-from biothings_client import get_client
-
+import biothings_client
 
 def plot_circular_ordering(results, time = None, **kwargs):
     """Plot the ellipse producted by the projection, the two CPCs and comparison of the estimated and true phases
@@ -23,10 +21,12 @@ def plot_circular_ordering(results, time = None, **kwargs):
     """    
     sns.set_style("ticks")
     sns.set_context("notebook")
-    fig = mp.figure(**kwargs);
-    gs = gridspec.GridSpec(1, 3)
+    fig = mp.pyplot.figure(**kwargs);
+    gs = mp.gridspec.GridSpec(1, 3)
     ax = fig.add_subplot(gs[0, 0]);
     sns.scatterplot(x=results["CPCs"][:, 0], y=results["CPCs"][:, 1], ax=ax, palette='Set2', edgecolor='black')
+    circ = mp.patches.Circle((0, 0), radius=1, alpha=0.25, fc='red')
+    ax.add_patch(circ)
     ax.set_aspect(1)
     ax.set_xlabel("circularized principal component 1")
     ax.set_ylabel("circularized principal component 2")
@@ -67,20 +67,22 @@ def plot_cv_run(results, **kwargs):
     df1 = pd.DataFrame.from_dict({t: np.array(results['runs'][i]['test_se']).squeeze() for i, t in enumerate(results['t_choices'])})
     df1 = pd.melt(df1, var_name='t', value_name='se')
 
-    fig = mp.figure(**kwargs)
-    gs = gridspec.GridSpec(1, 2)
+    fig = mp.pyplot.figure(**kwargs)
+    gs = mp.gridspec.GridSpec(1, 2)
     ax = fig.add_subplot(gs[0, 0]);
     sns.boxplot(x="t", y="se", data=df1, ax=ax)
-    ax.set_ylim([0, 0.5])
+    ax.set_ylim([0, 0.25])
     ax.set_xlabel("Different choices of l1 constraint")
     ax.set_ylabel("Error of the fit")
+    ax.xaxis.set_major_formatter(mp.ticker.FormatStrFormatter('%.1f'))
     #ax.set_yscale("log")
 
     df2 = pd.DataFrame({'t': results['t_choices'], 'nfeature': [np.unique(np.nonzero(r['V'])[0]).shape[0] for r in results['runs']]})
     ax = fig.add_subplot(gs[0, 1]);
     sns.barplot(x="t", y="nfeature", data=df2, ax=ax)
     ax.set_xlabel("Different choices of l1 constraint")
-    ax.set_ylabel("No. of unique features")    
+    ax.set_ylabel("No. of unique features")   
+    ax.xaxis.set_major_formatter(mp.ticker.FormatStrFormatter('%.1f')) 
     sns.despine()
     fig.tight_layout()
 
@@ -101,9 +103,9 @@ def plot_diagnostics(X, feature_dim = 'row', **kwargs):
 
     sns.set_style("ticks");
     sns.set_context("notebook")
-    fig = mp.figure(**kwargs);
+    fig = mp.pyplot.figure(**kwargs);
 
-    gs = gridspec.GridSpec(1, 3)
+    gs = mp.gridspec.GridSpec(1, 3)
     ax = fig.add_subplot(gs[0, 0]);
     ax.scatter(X.mean(axis=axis), X.std(axis=axis), s=0.5)
     ax.set_xlabel("Mean value of the feature")
@@ -135,7 +137,7 @@ def plot_markers(results, translate=False, **kwargs):
     df = df.loc[(df!=0).any(axis=1)].sort_index()
 
     if translate:
-        mg = get_client('gene')
+        mg = biothings_client.get_client('gene')
         symbols = mg.getgenes(df.index.values, as_dataframe=True, fields='symbol')
         df.set_index(symbols["symbol"].values, inplace=True)
 
@@ -162,7 +164,7 @@ def print_markers(results, translate=False):
     df = df.loc[(df!=0).any(axis=1)].sort_index()
 
     if translate:
-        mg = get_client('gene')
+        mg = biothings_client.get_client('gene')
         symbols = mg.getgenes(df.index.values, as_dataframe=True, fields='symbol')
         df.set_index(symbols["symbol"].values, inplace=True)
 
