@@ -53,6 +53,13 @@ def process_data(X, features, feature_dim='row', mean_threshold=None, scaling_th
     else:
         raise ValueError("Invalid feature dimension.")
 
+    # Imputing extreme values
+    if impute is not None:
+        if isinstance(impute, float) and impute < 100.0 and impute > 0.0:
+            upper_bound = np.percentile(X_, 100-impute/2, axis=axis, keepdims=True)
+            lower_bound = np.percentile(X_, impute/2, axis=axis, keepdims=True)
+            X_ = np.maximum(np.minimum(X_, upper_bound), lower_bound)
+
     if mean_threshold is not None:
         if isinstance(mean_threshold, (int, float)):
             if axis == 1:
@@ -80,13 +87,6 @@ def process_data(X, features, feature_dim='row', mean_threshold=None, scaling_th
                 keep = np.logical_and(X_.std(axis=0)>1/scaling_threshold[1], X_.std(axis=0)<1/scaling_threshold[0])
                 features_ =  features_[keep]
                 X_ = X_[:, keep]
-        
-    # Imputing extreme values
-    if impute is not None:
-        if isinstance(impute, float) and impute < 1.0 and impute > 0.0:
-            upper_bound = np.percentile(X_, 100-impute/2, axis=axis, keepdims=True)
-            lower_bound = np.percentile(X_, impute/2, axis=axis, keepdims=True)
-            X_ = np.maximum(np.minimum(X_, upper_bound), lower_bound)
 
     # Always center data to have zero mean
     X_ = X_ - np.mean(X_, axis=axis, keepdims=True)
@@ -141,7 +141,7 @@ def circular_ordering(X, t, feature_std=None, restarts=3, true_times=None, featu
 
     return result
 
-def cross_validate(X, t_choices, choice='min', true_times=None, features=None, feature_std=None, hold=None, restarts=5, tol=1e-3, max_iter=100, ncores=None):
+def cross_validate(X, t_choices, choice='min', true_times=None, features=None, feature_std=None, outlier=10, hold=None, restarts=5, tol=1e-3, max_iter=100, ncores=None):
     """Calculates the median squared error and its standard deviation for different choices of sparsity threshold 't'
 
     Parameters
@@ -211,8 +211,8 @@ def cross_validate(X, t_choices, choice='min', true_times=None, features=None, f
 
     # Cross-validation
     run_t = [_calculate_se(X, t, feature_std, restarts, tol, max_iter, train_indices, test_indices, ncores) for t in t_choices]
-    med_se = np.array([np.median(s['test_se']) for s in run_t])
-    std_se = np.array([np.std(s['test_se']) for s in run_t])    
+    med_se = np.array([np.percentile(s['test_se'], 100-outlier) for s in run_t])
+    std_se = np.array([scipy.stats.iqr(s['test_se']) for s in run_t])    
     ind_min = np.argmin(med_se)
     
     if choice == '1sd':
