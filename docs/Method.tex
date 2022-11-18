@@ -43,7 +43,7 @@ This transformation maps the data into the best possible approximate ellipse and
 \subsubsection*{Solving this optimization}
 This optimization is hard to solve; we need to either enforce orthogonality between the LVs or PCs, or optimize this coupled cost function. We simplify this problem \todo{better way to justify this?} by keeping only the first two terms in this optimization. 
 \begin{equation}
-\max \left\{\mathbf{u}_1^T \mathbf{X} \mathbf{v}_1 + \mathbf{u}_2^T \mathbf{X} \mathbf{v}_2 \} ~\textrm{s.t.}~ \|\mathbf{v}_1\|_2 = \|\mathbf{v}_2\|_2=1,~ {\mathbf{u}_1^2}_i + {\mathbf{u}_2^2}_i = 1~ \forall i\in \{1,\ldots,n\}
+\max \left\{\mathbf{u}_1^T \mathbf{X} \mathbf{v}_1 + \mathbf{u}_2^T \mathbf{X} \mathbf{v}_2 \right\} ~\textrm{s.t.}~ \|\mathbf{v}_1\|_2 = \|\mathbf{v}_2\|_2=1,~ {\mathbf{u}_1^2}_i + {\mathbf{u}_2^2}_i = 1~ \forall i\in \{1,\ldots,n\}
 \end{equation}
 
 This simplified equation is bi-convex in $\textbf{u}$s and $\textbf{v}$s \todo{how do we prove this?} and can be solved using alternate maximization.
