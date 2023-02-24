@@ -11,7 +11,7 @@ import pandas as pd
 from COFE.ellipse import *
 
 
-def plot_circular_ordering(results, time = None, filename=None, **kwargs):
+def plot_circular_ordering(results, time = None, period = 24, filename=None, **kwargs):
     """Plot the ellipse producted by the projection, the two CPCs and comparison of the estimated and true phases
 
     Parameters
@@ -52,7 +52,7 @@ def plot_circular_ordering(results, time = None, filename=None, **kwargs):
     ax = fig.add_subplot(gs[0, 2]);
     ax.plot([0,1],[0,1], lw=2.0, ls=(0, (5, 8)), c='r')
     if time is not None:
-        sns.scatterplot(x = (time % 24)/24, y = results['phase'], ax=ax, edgecolor='black', c=['0.3'] * results['phase'].shape[0])
+        sns.scatterplot(x = (time % period)/period, y = results['phase'], ax=ax, edgecolor='black', c=['0.3'] * results['phase'].shape[0])
         ax.set_aspect(1)
         sns.despine()
         ax.set_xlabel(r"true sample phase ($\times$ period)")

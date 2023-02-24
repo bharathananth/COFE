@@ -140,7 +140,8 @@ def calculate_mape(Y, true_times=None, period=24):
     Parameters
     ----------
     Y : ndarray
-        2D array consisting of the two circular sparse principal components
+        2D array consisting of the two circular sparse principal components, or
+        1D array consisting of estimated sample times (normalized by period)
     true_times : ndarray, optional
         1D array of true/reference sample times for each sample in data, by default None
     period : int, optional
@@ -151,14 +152,17 @@ def calculate_mape(Y, true_times=None, period=24):
     (float, ndarray, float)
         tuple containing the median absolute error, estimated phases of the samples and a fast median absolute error calculation
     """    
+    Y = Y.squeeze()
+    if Y.ndim == 2:
+        try:
+            minor, major, center_x, center_y, tilt = direct_ellipse_est(Y[:, 0], Y[:, 1])
+            # Scaled angular positions
+            acw_angles, cw_angles = _scaled_angles((Y[:, 0] - center_x)/major, (Y[:, 1] - center_y)/minor)
+        except ValueError:
+            return None
+    elif Y.ndim == 1:
+        acw_angles, cw_angles = Y % 1.0, -Y % 1.0
 
-    try:
-        minor, major, center_x, center_y, tilt = direct_ellipse_est(Y[:, 0], Y[:, 1])
-    except ValueError:
-        return None
-
-    # Scaled angular positions
-    acw_angles, cw_angles = _scaled_angles((Y[:, 0] - center_x)/major, (Y[:, 1] - center_y)/minor)
     if true_times is not None:
         try: 
             # Scaled time values

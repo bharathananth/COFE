@@ -141,7 +141,7 @@ def circular_ordering(X, t, feature_std=None, restarts=3, true_times=None, featu
 
     return result
 
-def cross_validate(X, t_choices, choice='min', true_times=None, features=None, feature_std=None, outlier=10, hold=None, restarts=5, tol=1e-3, max_iter=100, ncores=None):
+def cross_validate(X, t_choices, choice='min', true_times=None, features=None, feature_std=None, outlier=10, hold=None, restarts=5, tol=1e-3, max_iter=100, ncores=None, period=24):
     """Calculates the median squared error and its standard deviation for different choices of sparsity threshold 't'
 
     Parameters
@@ -231,7 +231,7 @@ def cross_validate(X, t_choices, choice='min', true_times=None, features=None, f
 
     mape_value = np.nan
     pred_phase = np.nan
-    mape_value, pred_phase = calculate_mape(Y, true_times)
+    mape_value, pred_phase = calculate_mape(Y, true_times, period=period)
 
     return {'best_t': t_choices[ind], 't_choices': t_choices, 'runs': run_t,
             'MAPE': mape_value, 'phase': pred_phase, 'true_times': true_times, 'MSE': med_se[ind_min], 'score': decomp['score'],
