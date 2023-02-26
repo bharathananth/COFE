@@ -66,6 +66,8 @@ def coupled_spca(X, t=float('inf'), tol=1e-3, max_iter=100, feature_std=None, ve
     phi = rng.uniform(low=0.0, high=2*np.pi, size = (X.shape[0],1))
     u_1 = np.cos(phi)
     u_2 = np.sin(phi)
+
+    X_T = X.T
     
     count = 0
     score = -1.0
@@ -74,24 +76,25 @@ def coupled_spca(X, t=float('inf'), tol=1e-3, max_iter=100, feature_std=None, ve
         y_1 = X @ v_1
         y_2 = X @ v_2
 
-        u_1_n = y_1/np.sqrt(y_1 **2 + y_2 ** 2)
-        u_2_n = y_2/np.sqrt(y_1 **2 + y_2 ** 2)
+        y_circ = np.sqrt(y_1 **2 + y_2 ** 2)
+        u_1_n = y_1/y_circ
+        u_2_n = y_2/y_circ
 
-        u_1_diff = scipy.linalg.norm(u_1_n - u_1, ord=np.inf, check_finite=False)
-        u_2_diff = scipy.linalg.norm(u_2_n - u_2, ord=np.inf, check_finite=False)
+        u_1_diff = scipy.linalg.norm(u_1_n - u_1, ord=2, check_finite=False)
+        u_2_diff = scipy.linalg.norm(u_2_n - u_2, ord=2, check_finite=False)
 
         u_1 = u_1_n
         u_2 = u_2_n
 
-        XTu_1 = X.T @ u_1
+        XTu_1 = X_T @ u_1
         S_XTu_1 = _opt_thresh(XTu_1, t)
         v_1_n = S_XTu_1/scipy.linalg.norm(S_XTu_1, ord=2, check_finite=False)
-        XTu_2 = X.T @ u_2
+        XTu_2 = X_T @ u_2
         S_XTu_2 = _opt_thresh(XTu_2, t)
         v_2_n = S_XTu_2/scipy.linalg.norm(S_XTu_2, ord=2, check_finite=False)
 
-        v_1_diff = scipy.linalg.norm(v_1_n - v_1, ord=np.inf, check_finite=False)
-        v_2_diff = scipy.linalg.norm(v_2_n - v_2, ord=np.inf, check_finite=False)
+        v_1_diff = scipy.linalg.norm(v_1_n - v_1, ord=2, check_finite=False)
+        v_2_diff = scipy.linalg.norm(v_2_n - v_2, ord=2, check_finite=False)
 
         v_1 = v_1_n
         v_2 = v_2_n
@@ -123,11 +126,14 @@ def _opt_thresh(x, t):
         Guillemot et al. (2019) A constrained singular value decomposition method 
         that integrates sparsity and orthogonality
     """
-    x_tilde = np.sort(np.abs(x.flatten()))[::-1]
+    x_tilde = np.sort(np.fabs(x), axis=None)[::-1]
     if scipy.linalg.norm(x/scipy.linalg.norm(x, ord=2, check_finite=False), ord = 1, check_finite=False) <= t:
         lamb = 0
     else:
-        psi = lambda c: scipy.linalg.norm(_soft_thresh(x_tilde, c), ord=1, check_finite=False)/scipy.linalg.norm(_soft_thresh(x_tilde, c), ord=2, check_finite=False)
+        def psi(c):
+            x_thresholded = _soft_thresh(x_tilde, c)
+            return scipy.linalg.norm(x_thresholded, ord=1, check_finite=False)/scipy.linalg.norm(x_thresholded, ord=2, check_finite=False)
+        
         low = 1
         high = x_tilde.shape[0] - 1
         while (low < high - 1):
@@ -136,8 +142,8 @@ def _opt_thresh(x, t):
                 low = ind
             else:
                 high = ind
-
-        delta = scipy.linalg.norm(_soft_thresh(x_tilde, x_tilde[low]), ord = 2, check_finite=False)/(low + 1) * ((t * np.sqrt((low + 1 - psi(x_tilde[low])**2)/(low + 1 - t**2))) - psi(x_tilde[low]))
+        psi_low = psi(x_tilde[low])
+        delta = scipy.linalg.norm(_soft_thresh(x_tilde, x_tilde[low]), ord = 2, check_finite=False)/(low + 1) * ((t * np.sqrt((low + 1 - psi_low**2)/(low + 1 - t**2))) - psi_low)
         lamb = max(x_tilde[low] - delta, 0)
     
     return _soft_thresh(x, lamb)
@@ -166,5 +172,5 @@ def _soft_thresh(x, l):
     
     if l < 0:
         raise ValueError("Thresholding quantity must be non-negative.")
-    x_tilde = np.abs(x)
+    x_tilde = np.fabs(x)
     return np.sign(x) * np.maximum(x_tilde - l, 0)
