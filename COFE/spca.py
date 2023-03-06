@@ -80,8 +80,8 @@ def coupled_spca(X, t=float('inf'), tol=1e-3, max_iter=100, feature_std=None, ve
         u_1_n = y_1/y_circ
         u_2_n = y_2/y_circ
 
-        u_1_diff = scipy.linalg.norm(u_1_n - u_1, ord=2, check_finite=False)
-        u_2_diff = scipy.linalg.norm(u_2_n - u_2, ord=2, check_finite=False)
+        u_1_diff = scipy.linalg.norm(u_1_n - u_1, ord=2, check_finite=False)/scipy.linalg.norm(u_1, ord=2, check_finite=False)
+        u_2_diff = scipy.linalg.norm(u_2_n - u_2, ord=2, check_finite=False)/scipy.linalg.norm(u_2, ord=2, check_finite=False)
 
         u_1 = u_1_n
         u_2 = u_2_n
@@ -93,8 +93,8 @@ def coupled_spca(X, t=float('inf'), tol=1e-3, max_iter=100, feature_std=None, ve
         S_XTu_2 = _opt_thresh(XTu_2, t)
         v_2_n = S_XTu_2/scipy.linalg.norm(S_XTu_2, ord=2, check_finite=False)
 
-        v_1_diff = scipy.linalg.norm(v_1_n - v_1, ord=2, check_finite=False)
-        v_2_diff = scipy.linalg.norm(v_2_n - v_2, ord=2, check_finite=False)
+        v_1_diff = scipy.linalg.norm(v_1_n - v_1, ord=2, check_finite=False)/scipy.linalg.norm(v_1, ord=2, check_finite=False)
+        v_2_diff = scipy.linalg.norm(v_2_n - v_2, ord=2, check_finite=False)/scipy.linalg.norm(v_2, ord=2, check_finite=False)
 
         v_1 = v_1_n
         v_2 = v_2_n
