@@ -4,13 +4,11 @@ This module contains functions to process data, analyse data using sparse
 loading vectors, and analyse data using SPCA principal components.
 """
 import numpy as np
-import pandas as pd
-from COFE.spca import *
-from COFE.ellipse import *
+from scipy.linalg import norm
 import joblib
+from COFE.spca import sparse_cyclic_pca_masked, sparse_cyclic_pca
 
-
-def process_data(X, features, feature_dim='row', mean_threshold=None, scaling_threshold=None, impute=None):
+def process_data(X, features, feature_dim='row', mean_threshold=None, scaling_threshold=None, impute=None, scale=True):
     """Function to preprocess data prior to analysis including centering, scaling and imputing.
 
     Parameters
@@ -93,7 +91,8 @@ def process_data(X, features, feature_dim='row', mean_threshold=None, scaling_th
 
     # Standardise every gene series to have variance of 1
     std_ = np.std(X_, axis=axis, keepdims=True)
-    X_ = X_ / std_
+    if scale:
+        X_ = X_ / std_
 
     if axis == 1:
         X_ = X_.T
@@ -102,7 +101,8 @@ def process_data(X, features, feature_dim='row', mean_threshold=None, scaling_th
     
     return (X_, features_, std_)
 
-def circular_ordering(X, t, feature_std=None, restarts=3, true_times=None, features=None, tol=1e-4, max_iter=200):
+def circular_ordering(X, lamb, feature_std=None, restarts=3, true_times=None, 
+                      tol=1e-4, max_iter=200, period=24, ncores=None):
     """Function to fit ellipse to SPCA principal components.
 
     Function to find the circular PCs for the chosen l1 sparsity constrain and computes MAPE for ordering if true_times is provided
@@ -110,7 +110,7 @@ def circular_ordering(X, t, feature_std=None, restarts=3, true_times=None, featu
     Args:
         X (ndarray): Matrix where columns correspond to genes and rows 
             correspond to samples.
-        t (float): l1 norm constraint that sets SPCA sparsity level.
+        lamb (float): l1 norm constraint that sets SPCA sparsity level.
         true_times (array): The true time labels to compare results against. 
             Defaults to None. 
 
@@ -120,35 +120,31 @@ def circular_ordering(X, t, feature_std=None, restarts=3, true_times=None, featu
         are corresponding quantities.
     """
 
-    decomp = _multi_start(X, t=t, feature_std=feature_std, restarts=restarts, tol=tol, max_iter=max_iter)
-    U = decomp['U']
+    decomp = _multi_start(X, lamb, feature_std, restarts=restarts, tol=tol, 
+                          max_iter=max_iter, ncores=ncores)
     V = decomp['V']
 
     Y = X @ V
 
-    try:
-        geo_param = direct_ellipse_est(Y[:, 0], Y[:, 1])
-    except ValueError:
-        return None
-    mse = np.quantile(ellipse_metrics(Y[:, 0], Y[:, 1], geo_param), 0.5)
-    
     mape_value = np.nan
     pred_phase = np.nan
-    mape_value, pred_phase, acw = calculate_mape(Y, true_times)
+    mape_value, pred_phase = calculate_mape(Y, true_times, period=period)
 
-    result = {'phase': pred_phase, 'MAPE': mape_value, 'CPCs': Y, 'SLs': V, 'true_times': true_times,
-              'MSE': np.nan, 'score': decomp['score'], 'features': features, 'MSE': mse, 'U': U, 'acw': acw}
+    result = {'phase': pred_phase, 'MAPE': mape_value, 'CPCs': Y, 'SLs': V, 
+              'd': decomp['d'], 'true_times': true_times, 'rss': decomp['rss']}
 
     return result
 
-def cross_validate(X, t_choices, choice='min', true_times=None, features=None, feature_std=None, outlier=10, hold=None, restarts=5, tol=1e-3, max_iter=100, ncores=None, period=24):
-    """Calculates the median squared error and its standard deviation for different choices of sparsity threshold 't'
+def cross_validate(X, lambda_choices, K=5, features=None, feature_std=None, 
+                          restarts=10, tol=1e-2, max_iter=200, true_times=None, 
+                          period=24, ncores=None):
+    """Calculates the median squared error and its standard deviation for different choices of sparsity threshold 'lamb'
 
     Parameters
     ----------
     X : ndarray
         preprocessed data matrix 
-    t_choices : array or list
+    lambda_choices : array or list
         different values of l1 sparsity threshold to compare
     choice : str, optional
         criterion to pick the best sparsity threshold, either minimum or 1 SD above minimum, by default 'min'
@@ -172,11 +168,11 @@ def cross_validate(X, t_choices, choice='min', true_times=None, features=None, f
     Returns
     -------
     {
-        'best_t': float
-            best performing t
-         t_choices': array-like float different values of l1 sparsity threshold to compare from the input
+        'best_lambda': float
+            best performing lamb
+         lambda_choices': array-like float different values of l1 sparsity threshold to compare from the input
          'runs': list of dict
-            the results structure from cross_validate for the different t choices tried
+            the results structure from cross_validate for the different lamb choices tried
          'MAPE': float
             median absolute position error
          'pred_phase': ndarray
@@ -184,85 +180,116 @@ def cross_validate(X, t_choices, choice='min', true_times=None, features=None, f
          'true_times': ndarray 
             true/reference times of the samples from the input
          'MSE': float
-            median squared error of the best performing t
-         'score': float
-            score of the best performing t
+            median squared error of the best performing lamb
+         'rss': float
+            rss of the best performing lamb
          'CPCs': ndarray
-            2D array containing the 2 circular principal components for best performing t
+            2D array containing the 2 circular principal components for best performing lamb
          'SLs': ndarray
-            2D array containing the 2 sparse loading vectors V_1 and V_2 for best performing t
+            2D array containing the 2 sparse loading vectors V_1 and V_2 for best performing lamb
          'features': ndarray
             names of the features from the input 
          'acw': float
             approximate MAPE calculation
     }
-    """    
-    
-    test_indices = None
-    train_indices = None
-    if hold is not None:
-        if isinstance(hold, float):
-            rng = np.random.default_rng()
-            shuffled_indices = rng.permutation(X.shape[0])
-            test_indices = shuffled_indices[0:int(hold*X.shape[0])]
-            train_indices = shuffled_indices[int(hold*X.shape[0]):]
-        else:
-            raise("hold must be a number between 0 and 1")
+    """
+    indices = np.random.permutation(X.size)
+    fold_size = np.ceil(X.size/K).astype(int)
 
+    cv_indices = [indices[i*fold_size:(i+1)*fold_size] for i in range(K)]
+    
     # Cross-validation
-    run_t = [_calculate_se(X, t, feature_std, restarts, tol, max_iter, train_indices, test_indices, ncores) for t in t_choices]
-    med_se = np.array([np.percentile(s['test_se'], 100-outlier) for s in run_t])
-    std_se = np.array([scipy.stats.iqr(s['test_se']) for s in run_t])    
-    ind_min = np.argmin(med_se)
-    
-    if choice == '1sd':
-        if np.any(np.logical_and(med_se > med_se[ind_min] + std_se[ind_min], t_choices<t_choices[ind_min])):
-            ind  = np.where(np.logical_and(med_se > med_se[ind_min] + std_se[ind_min], t_choices<t_choices[ind_min]))[0][-1]
-        else:
-            ind = 0
+    cv_lambda = [_calculate_cv(X, lamb, feature_std, restarts, tol, max_iter, cv_indices, ncores) for lamb in lambda_choices]
+    best_lambda = lambda_choices[np.argmin([cv_m for (cv_m, cv_s) in cv_lambda])]
+
+    best_fit = circular_ordering(X, best_lambda, feature_std=feature_std, 
+                                 restarts=restarts, true_times=true_times, 
+                                 tol=tol, max_iter=max_iter, period=period, 
+                                 ncores=ncores)
+
+    return {'best_lambda': best_lambda, 'lambda_choices': lambda_choices, 
+            'runs': cv_lambda, 'features': features} | best_fit
+
+def calculate_mape(Y, true_times=None, period=24):
+    """Calculate median absolute position error
+
+    Parameters
+    ----------
+    Y : ndarray
+        2D array consisting of the two circular sparse principal components, or
+        1D array consisting of estimated sample times (normalized by period)
+    true_times : ndarray, optional
+        1D array of true/reference sample times for each sample in data, by default None
+    period : int, optional
+        _description_, by default 24
+
+    Returns
+    -------
+    (float, ndarray, float)
+        tuple containing the median absolute error, estimated phases of the samples and a fast median absolute error calculation
+    """    
+    Y = Y.squeeze()
+    if Y.ndim == 2:
+        # Scaled angular positions
+        acw_angles, cw_angles = _scaled_angles(Y[:, 0], Y[:, 1])
+    elif Y.ndim == 1:
+        acw_angles, cw_angles = Y % 1.0, -Y % 1.0
+
+    if true_times is not None:
+        try: 
+            # Scaled time values
+            scaled_time = true_times/period - true_times//period
+            # Choosing direction (bias variation)
+            acw_bias = _delta(acw_angles, scaled_time)
+            cw_bias = _delta(cw_angles, scaled_time)
+            # Optimal direction is direction with lowest bias value std dev
+            if _angular_spread(np.cos(2*np.pi*acw_bias), np.sin(2*np.pi*acw_bias)) < \
+                _angular_spread(np.cos(2*np.pi*cw_bias), np.sin(2*np.pi*cw_bias)):
+                adjusted_opt_angles = (acw_angles - _angular_mean(np.cos(2*np.pi*acw_bias), np.sin(2*np.pi*acw_bias))) % 1
+            else:
+                adjusted_opt_angles = (cw_angles - _angular_mean(np.cos(2*np.pi*cw_bias), np.sin(2*np.pi*cw_bias))) % 1
+            mape_value = np.min([np.median(np.abs(_delta(scaled_time - adjusted_opt_angles, d))) for d in np.arange(-0.5, 0.5, 0.005)]) if true_times is not None else np.nan
+        except RuntimeWarning:
+            mape_value = np.nan
     else:
-        ind = ind_min
-
-    decomp = run_t[ind]
-    U = decomp['U']
-    V = decomp['V']
-
-    Y = X @ V
-
-    mape_value = np.nan
-    pred_phase = np.nan
-    mape_value, pred_phase = calculate_mape(Y, true_times, period=period)
-
-    return {'best_t': t_choices[ind], 't_choices': t_choices, 'runs': run_t,
-            'MAPE': mape_value, 'phase': pred_phase, 'true_times': true_times, 'MSE': med_se[ind_min], 'score': decomp['score'],
-            'CPCs': Y, 'SLs': V, 'features': features}
+        mape_value = np.nan
+        adjusted_opt_angles = acw_angles
+    return (mape_value, adjusted_opt_angles)
 
 # INTERNAL FUNCTIONS
 
-def _calculate_se(X, t, feature_std, restarts, tol, max_iter, train_indices, test_indices, ncores):
-    if train_indices is None or test_indices is None:
-        decomp = _multi_start(X, t, feature_std, restarts=restarts, tol=tol, max_iter=max_iter, ncores=ncores)
-        Y = X @ decomp['V']
-        try:
-            geo_param = direct_ellipse_est(Y[:, 0], Y[:, 1])
-        except ValueError:
-            return None
-        decomp['test_se'] = ellipse_metrics(Y[:, 0], Y[:, 1], geo_param)
-    else:
-        decomp = _multi_start(X[train_indices, :], t, feature_std, restarts=restarts, tol=tol, max_iter=max_iter, ncores=ncores)
-        Y = X @ decomp['V']
-        try:
-            geo_param = direct_ellipse_est(Y[train_indices, 0], Y[train_indices, 1])
-        except ValueError:
-            return None
-        decomp['test_se'] = ellipse_metrics(Y[test_indices, 0], Y[test_indices, 1], geo_param)
-    return(decomp)
+def _calculate_cv(X, lamb, feature_std, restarts, tol, max_iter, cv_indices, ncores):
+    rss_cv = list()
+    for cv_ind in cv_indices:
+        mask = np.zeros(X.size, dtype=bool)
+        mask[cv_ind] = True
+        X_ = np.ma.array(X, copy=True, mask=np.reshape(mask, X.shape))
+        decomp = _multi_start(X_, lamb, feature_std, restarts=restarts, tol=tol, max_iter=max_iter, ncores=ncores)
+        rss_cv.append(decomp['rss']/np.sum(mask)) 
+    return((np.mean(rss_cv), np.std(rss_cv)/np.sqrt(len(cv_indices))))
 
-def _multi_start(X, t, feature_std, restarts, tol, max_iter, ncores):
+def _multi_start(X, lamb, feature_std, restarts, tol, max_iter, ncores):
     if ncores is None:
-        runs = [coupled_spca(X, t=t, tol=tol, max_iter=max_iter, feature_std=feature_std) for _ in range(restarts)]
+        if isinstance(X, np.ma.MaskedArray):
+            runs = [sparse_cyclic_pca_masked(X, lamb=lamb, tol=tol, max_iter=max_iter, feature_std=feature_std) for _ in range(restarts)]
+        else:
+            runs = [sparse_cyclic_pca(X, lamb=lamb, tol=tol, max_iter=max_iter, feature_std=feature_std) for _ in range(restarts)]
     else:
-        runs = joblib.Parallel(n_jobs=ncores)(joblib.delayed(coupled_spca)(X, t=t, tol=tol, max_iter=max_iter, feature_std=feature_std) for _ in range(restarts))
-
-    ind = np.argmax([r['score'] for r in runs])
+        if isinstance(X, np.ma.MaskedArray):
+            runs = joblib.Parallel(n_jobs=ncores)(joblib.delayed(sparse_cyclic_pca_masked)(X, lamb=lamb, tol=tol, max_iter=max_iter, feature_std=feature_std) for _ in range(restarts))
+        else:
+            runs = joblib.Parallel(n_jobs=ncores)(joblib.delayed(sparse_cyclic_pca)(X, lamb=lamb, tol=tol, max_iter=max_iter, feature_std=feature_std) for _ in range(restarts))
+    ind = np.argmin([r['rss'] for r in runs])
     return runs[ind]
+
+def _scaled_angles(x, y):
+    return (np.arctan2(y, x)/(2*np.pi)) % 1,  (np.arctan2(-y, x)/(2*np.pi)) % 1
+
+def _delta(x, y):
+    return ((x - y + 1/2) % 1) - 1/2
+
+def _angular_mean(x, y):
+    return (np.arctan2(np.sum(y), np.sum(x))/(2*np.pi)) % 1
+
+def _angular_spread(x, y):
+    return x.shape[0] - np.sqrt(np.sum(x) ** 2 + np.sum(y) ** 2)
