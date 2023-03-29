@@ -93,6 +93,8 @@ def process_data(X, features, feature_dim='row', mean_threshold=None, scaling_th
     std_ = np.std(X_, axis=axis, keepdims=True)
     if scale:
         X_ = X_ / std_
+    else:
+        X_ = X_ / np.max(std_)
 
     if axis == 1:
         X_ = X_.T
@@ -136,7 +138,7 @@ def circular_ordering(X, lamb, feature_std=None, restarts=3, true_times=None,
     return result
 
 def cross_validate(X, lambda_choices, K=5, features=None, feature_std=None, 
-                          restarts=10, tol=1e-2, max_iter=200, true_times=None, 
+                          restarts=10, tol=1e-3, max_iter=200, true_times=None, 
                           period=24, ncores=None):
     """Calculates the median squared error and its standard deviation for different choices of sparsity threshold 'lamb'
 
@@ -260,13 +262,16 @@ def calculate_mape(Y, true_times=None, period=24):
 
 def _calculate_cv(X, lamb, feature_std, restarts, tol, max_iter, cv_indices, ncores):
     rss_cv = list()
+    mask_size = list()
     for cv_ind in cv_indices:
         mask = np.zeros(X.size, dtype=bool)
         mask[cv_ind] = True
         X_ = np.ma.array(X, copy=True, mask=np.reshape(mask, X.shape))
         decomp = _multi_start(X_, lamb, feature_std, restarts=restarts, tol=tol, max_iter=max_iter, ncores=ncores)
-        rss_cv.append(decomp['rss']/np.sum(mask)) 
-    return((np.mean(rss_cv), np.std(rss_cv)/np.sqrt(len(cv_indices))))
+        rss_cv.append(decomp['cv_err']) 
+        mask_size.append(np.sum(mask))
+        mean_rss = np.array(rss_cv)/np.array(mask_size)
+    return((np.sum(rss_cv)/X.size, np.std(mean_rss)/np.sqrt(len(cv_indices))))
 
 def _multi_start(X, lamb, feature_std, restarts, tol, max_iter, ncores):
     if ncores is None:
