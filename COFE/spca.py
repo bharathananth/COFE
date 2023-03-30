@@ -7,23 +7,27 @@ import numpy as np
 from scipy.linalg import norm
 from warnings import warn
 
-def sparse_cyclic_pca(X, lamb=None, tol=1e-3, max_iter=100, feature_std=None):
-    """Generates a pair of sparse loading vectors that satisfy the circular constraints.
+def sparse_cyclic_pca(X, s=None, tol=1e-3, max_iter=100, feature_std=None):
+    """Generates a pair of loading vectors and cyclic principal 
+    components that satisfy specific sparsity constraint.
 
     Parameters
     ----------
     X : ndarray
        data matrix with features along columns and samples along rows.
-    lamb : float, optional
-        l1 norm constraint that determines level of sparsity, by default float('inf')
+    s : float, optional
+        l1 norm constraint that determines level of sparsity, by default 
+        None, i.e., no sparsity
     tol : float, optional
-        convergence criterion for the iterative algorithm, by default 1e-3
+        convergence criterion for the iterative algorithm, by default 
+        1e-3
     max_iter : int, optional
-        maximum number of iterations to look for convergence, by default 100
+        maximum number of iterations to look for convergence, by default
+         100
     feature_std : array-like, optional
-        weights for the different features that determine the st. dev. of the random initial conditions, by default None
-    verbose : bool, optional
-        whether to print convergence information, by default False
+        weights for the different features that determine the st. dev. 
+        of the random initial conditions of loading vectors, by default 
+        None
 
     Returns
     -------
@@ -33,37 +37,41 @@ def sparse_cyclic_pca(X, lamb=None, tol=1e-3, max_iter=100, feature_std=None):
                 sparse right eigenvectors as columns,
             'U': ndarray
                 circular left eigenvectors as columns,
+            'd': double
+                scale factor for the outer product approximation,
             'converged': bool
                 if the iterations converged
             'rss': float
-                final rss after convergence. With no convergence, rss is set to -1.
+                final rss after convergence. With no convergence, rss is 
+                set to -1.
         }
 
     Raises
     ------
     ValueError
-        _description_
-    ValueError
-        _description_
+        when feature weights for initialization are not the same size as
+         feature
     """        
     N = X.shape[0]
 
-    sparsify = False if lamb is None else True
+    sparsify = False if s is None else True
 
     rng = np.random.default_rng()    
     v_1 = rng.laplace(size=(X.shape[1],1))
     if feature_std is not None:
         if feature_std.shape[0] != X.shape[1]:
-            raise ValueError("Feature standard deviations not the same size as feature.")
+            raise ValueError("Feature standard deviations not the same " 
+            "size as feature.")
         v_1 = v_1 * feature_std
-    Sv_1 = _opt_thresh(v_1, lamb) if sparsify else v_1.copy()
+    Sv_1 = _opt_thresh(v_1, s) if sparsify else v_1.copy()
     v_1 = Sv_1/norm(Sv_1, ord=2)
     v_2 = rng.laplace(size = (X.shape[1],1))
     if feature_std is not None:
         if feature_std.shape[0] != X.shape[1]:
-            raise ValueError("Feature standard deviations not the same size as feature.")
+            raise ValueError("Feature standard deviations not the same "
+            "size as feature.")
         v_2 = v_2 * feature_std
-    Sv_2 = _opt_thresh(v_2, lamb) if sparsify else v_2.copy()
+    Sv_2 = _opt_thresh(v_2, s) if sparsify else v_2.copy()
     v_2 = Sv_2/norm(Sv_2, ord=2)
 
     phi = rng.uniform(low=0.0, high=2*np.pi, size=(X.shape[0],1))
@@ -93,10 +101,10 @@ def sparse_cyclic_pca(X, lamb=None, tol=1e-3, max_iter=100, feature_std=None):
         u_2 = u_2_n.copy()
 
         XTu_1 = X_T @ u_1
-        S_XTu_1 = _opt_thresh(XTu_1, lamb) if sparsify else XTu_1.copy()
+        S_XTu_1 = _opt_thresh(XTu_1, s) if sparsify else XTu_1.copy()
         v_1_n = S_XTu_1/norm(S_XTu_1, ord=2)
         XTu_2 = X_T @ u_2
-        S_XTu_2 = _opt_thresh(XTu_2, lamb) if sparsify else XTu_2.copy()
+        S_XTu_2 = _opt_thresh(XTu_2, s) if sparsify else XTu_2.copy()
         v_2_n = S_XTu_2/norm(S_XTu_2, ord=2)
 
         v_1_diff = norm(v_1_n - v_1, ord=2)
@@ -116,27 +124,37 @@ def sparse_cyclic_pca(X, lamb=None, tol=1e-3, max_iter=100, feature_std=None):
         
         count += 1
 
-    return {'V': np.hstack((v_1, v_2)), 'U': np.hstack((u_1, u_2)), 
-            'd': d, 'converged': (count<max_iter), 'rss': rss}
+    return {'V': np.hstack((v_1, v_2)), 
+            'U': np.hstack((u_1, u_2)), 
+            'd': d, 
+            'converged': (count<max_iter), 
+            'rss': rss}
 
-def sparse_cyclic_pca_masked(X, lamb=None, tol=1e-3, tol_z=1e-5, max_iter=100, 
+def sparse_cyclic_pca_masked(X, s=None, tol=1e-3, tol_z=1e-5, max_iter=100, 
                              feature_std=None):
-    """Generates a pair of sparse loading vectors that satisfy the circular constraints.
+    """Generates a pair of loading vectors and cyclic principal 
+    components that satisfy specific sparsity constraint for data with 
+    missing values. The code then imputes these missing values as well.
 
     Parameters
     ----------
     X : ndarray
        data matrix with features along columns and samples along rows.
-    lamb : float, optional
-        l1 norm constraint that determines level of sparsity, by default float('inf')
+    s : float, optional
+        l1 norm constraint that determines level of sparsity, by default
+         float('inf')
     tol : float, optional
-        convergence criterion for the iterative algorithm, by default 1e-3
+        convergence criterion for the iterative algorithm, by default 
+        1e-3
+    tol_z : float, optional
+        convergence criterion for the iterative algorithm, by default 
+        1e-5
     max_iter : int, optional
-        maximum number of iterations to look for convergence, by default 100
+        maximum number of iterations to look for convergence, by default 
+        100
     feature_std : array-like, optional
-        weights for the different features that determine the st. dev. of the random initial conditions, by default None
-    verbose : bool, optional
-        whether to print convergence information, by default False
+        weights for the different features that determine the st. dev. 
+        of the random initial conditions, by default None
 
     Returns
     -------
@@ -146,39 +164,49 @@ def sparse_cyclic_pca_masked(X, lamb=None, tol=1e-3, tol_z=1e-5, max_iter=100,
                 sparse right eigenvectors as columns,
             'U': ndarray
                 circular left eigenvectors as columns,
+            'd': double
+                scale factor for the outer product approximation,
             'converged': bool
                 if the iterations converged
             'rss': float
-                final rss after convergence. With no convergence, rss is set to -1.
+                final rss after convergence. With no convergence, rss is
+                 set to -1.
         }
 
     Raises
     ------
+    TypeError
+        input data matrix does not have missing values.
     ValueError
-        _description_
-    ValueError
-        _description_
+        when feature weights for initialization are not the same size as
+         feature
     """
+    if not isinstance(X, np.ma.MaskedArray):
+        raise TypeError("The input must be a masked numpy array")
+
     N = X.shape[0]
 
-    sparsify = False if lamb is None else True
+    sparsify = False if s is None else True
 
     Z = X.data.copy()
     rng = np.random.default_rng() 
     Z[X.mask] = rng.standard_normal(size=np.ma.count_masked(X))
+    
     v_1 = rng.laplace(size=(Z.shape[1],1))
     if feature_std is not None:
         if feature_std.shape[0] != Z.shape[1]:
-            raise ValueError("Feature standard deviations not the same size as feature.")
+            raise ValueError("Feature standard deviations not the same size as "
+                             "feature.")
         v_1 = v_1 * feature_std
-    Sv_1 = _opt_thresh(v_1, lamb) if sparsify else v_1.copy()
+    Sv_1 = _opt_thresh(v_1, s) if sparsify else v_1.copy()
     v_1 = Sv_1/norm(Sv_1, ord=2, check_finite=False)
     v_2 = rng.laplace(size=(Z.shape[1],1))
     if feature_std is not None:
         if feature_std.shape[0] != Z.shape[1]:
-            raise ValueError("Feature standard deviations not the same size as feature.")
+            raise ValueError("Feature standard deviations not the same size as "
+                             "feature.")
         v_2 = v_2 * feature_std
-    Sv_2 = _opt_thresh(v_2, lamb) if sparsify else v_2.copy()
+    Sv_2 = _opt_thresh(v_2, s) if sparsify else v_2.copy()
     v_2 = Sv_2/norm(Sv_2, ord=2, check_finite=False)
 
     phi = rng.uniform(low=0.0, high=2*np.pi, size=(Z.shape[0],1))
@@ -211,10 +239,10 @@ def sparse_cyclic_pca_masked(X, lamb=None, tol=1e-3, tol_z=1e-5, max_iter=100,
             u_2 = u_2_n.copy()
 
             XTu_1 = Z_T @ u_1
-            S_XTu_1 = _opt_thresh(XTu_1, lamb) if sparsify else XTu_1.copy()
+            S_XTu_1 = _opt_thresh(XTu_1, s) if sparsify else XTu_1.copy()
             v_1_n = S_XTu_1/norm(S_XTu_1, ord=2)
             XTu_2 = Z_T @ u_2
-            S_XTu_2 = _opt_thresh(XTu_2, lamb) if sparsify else XTu_2.copy()
+            S_XTu_2 = _opt_thresh(XTu_2, s) if sparsify else XTu_2.copy()
             v_2_n = S_XTu_2/norm(S_XTu_2, ord=2)
 
             v_1_diff = norm(v_1_n - v_1, ord=2)
@@ -245,15 +273,19 @@ def sparse_cyclic_pca_masked(X, lamb=None, tol=1e-3, tol_z=1e-5, max_iter=100,
             cv_err = np.inf
             break
 
-    return {'V': np.hstack((v_1, v_2)), 'U': np.hstack((u_1, u_2)), 
-            'd': d, 'converged': converged, 'rss': rss, 'cv_err': cv_err}
+    return {'V': np.hstack((v_1, v_2)), 
+            'U': np.hstack((u_1, u_2)), 
+            'd': d, 
+            'converged': converged, 
+            'rss': rss, 
+            'cv_err': cv_err}
 
-def _opt_thresh(x, lamb):
+def _opt_thresh(x, s):
     """Finds the optimal soft-thresholding to satisfy both l1 and l2 contraints
 
     Args: 
         x (ndarray): 1D numpy array to be soft thresholded
-        lamb (float): the desired l1 constraint
+        s (float): the desired l1 constraint
 
     Returns:
 
@@ -266,7 +298,7 @@ def _opt_thresh(x, lamb):
     """
     x_tilde = np.sort(np.fabs(x), axis=None)[::-1]
     if norm(x/norm(x, ord=2), 
-                         ord = 1) <= lamb:
+                         ord = 1) <= s:
         return x
     else:
         def psi(c):
@@ -278,28 +310,30 @@ def _opt_thresh(x, lamb):
         high = x_tilde.shape[0] - 1
         while (low < high - 1):
             ind = low + (high - low) // 2
-            if (psi(x_tilde[ind])<lamb):
+            if (psi(x_tilde[ind])<s):
                 low = ind
             else:
                 high = ind
         psi_low = psi(x_tilde[low])
         delta = norm(_soft_thresh(x_tilde, x_tilde[low]), ord = 2, 
                                   check_finite=False)/(low + 1) \
-                * ((lamb * np.sqrt((low + 1 - psi_low**2)/(low + 1 - lamb**2))) 
+                * ((s * np.sqrt((low + 1 - psi_low**2)/(low + 1 - s**2))) 
                     - psi_low)
         l = max(x_tilde[low] - delta, 0)
         return _soft_thresh(x, l)
 
 def _soft_thresh(x, l):
     """Soft-thresholding function.
-    Method to reduce absolute values of vector entries by a specifc quantity.
+    Method to reduce absolute values of vector entries by a specifc 
+    quantity.
 
     Parameters
     ----------
     x : ndarray
         1D vectors of values
     l : float
-        positive quantity by which to reduce absolute value of each entry of x
+        positive quantity by which to reduce absolute value of each 
+        entry of x
 
     Returns
     -------

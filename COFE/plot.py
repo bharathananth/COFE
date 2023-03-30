@@ -24,8 +24,11 @@ def plot_circular_ordering(results, time = None, period = 24, filename=None, **k
     fig = mp.pyplot.figure(**kwargs);
     gs = mp.gridspec.GridSpec(1, 3, width_ratios=[1.,1.,1.])
     ax = fig.add_subplot(gs[0, 0]);
-    sns.scatterplot(x=results["CPCs"][:, 0], y=results["CPCs"][:, 1], ax=ax, palette='Set2', c=['0.3'] * results["CPCs"].shape[0])
-    circle = mp.patches.Circle((0, 0), radius=results['d'], alpha=0.5, ec='grey', ls=(0, (5, 3)), fill=False, lw=2.0)
+    sns.scatterplot(x=results["CPCs"][:, 0], y=results["CPCs"][:, 1], ax=ax, 
+                    hue=time, palette='twilight', 
+                    c=['0.3'] * results["CPCs"].shape[0])
+    circle = mp.patches.Circle((0, 0), radius=1, alpha=0.5, 
+                               ec='grey', ls=(0, (5, 3)), fill=False, lw=2.0)
     ax.add_patch(circle)
     ax.set_aspect('equal')
     ax.set_xlabel("circularized principal component 1")
@@ -71,7 +74,7 @@ def plot_cv_run(results, **kwargs):
     sns.set_context("notebook")
 
     df1 = pd.DataFrame.from_dict({lamb: results['runs'][i] for i, 
-                                  lamb in enumerate(results['lambda_choices'])}, 
+                                  lamb in enumerate(results['s_choices'])}, 
                                   orient='index', columns=['cv_mean', 'cv_se'])
     fig = mp.pyplot.figure(**kwargs)
     gs = mp.gridspec.GridSpec(1, 1)
