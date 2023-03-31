@@ -130,7 +130,7 @@ def sparse_cyclic_pca(X, s=None, tol=1e-3, max_iter=100, feature_std=None):
             'converged': (count<max_iter), 
             'rss': rss}
 
-def sparse_cyclic_pca_masked(X, s=None, tol=1e-3, tol_z=1e-5, max_iter=100, 
+def sparse_cyclic_pca_masked(X, s=None, tol=1e-3, tol_z=1e-5, max_iter=200, 
                              feature_std=None):
     """Generates a pair of loading vectors and cyclic principal 
     components that satisfy specific sparsity constraint for data with 
@@ -151,7 +151,7 @@ def sparse_cyclic_pca_masked(X, s=None, tol=1e-3, tol_z=1e-5, max_iter=100,
         1e-5
     max_iter : int, optional
         maximum number of iterations to look for convergence, by default 
-        100
+        200
     feature_std : array-like, optional
         weights for the different features that determine the st. dev. 
         of the random initial conditions, by default None
@@ -215,12 +215,14 @@ def sparse_cyclic_pca_masked(X, s=None, tol=1e-3, tol_z=1e-5, max_iter=100,
 
     d = (u_1.T @ Z @ v_1 + u_2.T @ Z @ v_2).item()/N
 
-    rss = norm(Z - d*(u_1 @ v_1.T + u_2 @ v_2.T), ord='fro') ** 2
-    err = 1.0
-    
-    while err > tol_z:
+    Z_imputed = d * (u_1 @ v_1.T + u_2 @ v_2.T)
+
+    rss = norm(Z - Z_imputed, ord='fro') ** 2
+    cv_err = norm(X.data - Z_imputed) ** 2
+    count = 0
+
+    while count < max_iter:
         Z_T = Z.T
-        count = 0
         converged = False
         while count < max_iter:
             y_1 = Z @ v_1
@@ -268,11 +270,9 @@ def sparse_cyclic_pca_masked(X, s=None, tol=1e-3, tol_z=1e-5, max_iter=100,
             rss = rss_new
             E = (X.data - Z)
             cv_err = norm(E, ord='fro') ** 2
-        else:
-            rss = np.inf
-            cv_err = np.inf
-            break
-
+            if err < tol_z:
+                break
+    
     return {'V': np.hstack((v_1, v_2)), 
             'U': np.hstack((u_1, u_2)), 
             'd': d, 

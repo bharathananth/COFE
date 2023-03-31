@@ -181,7 +181,7 @@ def cyclic_ordering(X, s, feature_std=None, restarts=5, tol=1e-4, max_iter=100,
     return result
 
 def cross_validate(X, s_choices, features=None, feature_std=None, K=5, 
-                          restarts=5, tol=1e-3, tol_z=1e-5, max_iter=100, 
+                          restarts=5, tol=1e-3, tol_z=1e-4, max_iter=200, 
                           true_times=None, period=24.0, ncores=None):
     """Calculate the optimal choice of sparsity threshold 's' and the 
     cyclic ordering for the best 's'
@@ -210,7 +210,7 @@ def cross_validate(X, s_choices, features=None, feature_std=None, K=5,
         validation, by default 1e-5
     max_iter : int, optional
         maximum number of iterations of the alternating maximization, 
-        by default 100
+        by default 200
     true_times : array, optional
         known reference times for the samples to compare the 
         reconstruction against, by default None
