@@ -8,19 +8,19 @@ from scipy.linalg import norm
 from joblib import delayed, Parallel
 from COFE.spca import sparse_cyclic_pca_masked, sparse_cyclic_pca
 
-def process_data(X, features, feature_dim='row', mean_threshold=None, 
-                 scaling_threshold=None, impute=None, scale=True):
+def preprocess_data(X_train, X_test, features, feature_dim='row', 
+                 mean_threshold=None, scaling_threshold=None, scale=True):
     """Function to preprocess data prior to analysis including 
     centering, scaling and imputing.
 
     Parameters
     ----------
     X : ndarray
-        Matrix of features across samples.
+        matrix of features across samples.
     features : str
-        Names of the features
+        names of the features
     feature_dim : str, optional
-        Whether the features are the rows ('row') or columns ('col') 
+        whether the features are the rows ('row') or columns ('col') 
         of X, by default 'row'
     mean_threshold : float, optional
         minimum mean level of features that are retained for analysis, 
@@ -33,9 +33,9 @@ def process_data(X, features, feature_dim='row', mean_threshold=None,
 
     Returns
     -------
-    (ndarray, array, array)
-        Matrix of preprocessed data, names of retained features, 
-        standard deviation of retained features in raw data
+    (ndarray, ndarray, array, array)
+        Matrix of preprocessed training and test data, names of retained
+          features, standard deviation of retained features in raw data
 
     Raises
     ------
@@ -46,35 +46,43 @@ def process_data(X, features, feature_dim='row', mean_threshold=None,
     ValueError
         if scaling_threshold has a length other than 2
     """    
-
-    X_ = X.copy()
+    X_train_ = X_train.copy()
+    X_test_ = X_test.copy()
     features_ = features.copy()
 
     if feature_dim == 'row':
         axis = 1
+        if X_train_.shape[0]!=X_test_.shape[0]:
+            raise ValueError("Different number of features between "
+                             "train and test data")
     elif feature_dim == 'col':
         axis = 0
+        if X_train_.shape[1]!=X_test_.shape[1]:
+            raise ValueError("Different number of features between "
+                             "train and test data")
     else:
         raise ValueError("Invalid feature dimension.")
 
     # Imputing extreme values
-    if impute is not None:
-        if isinstance(impute, float) and impute < 100.0 and impute > 0.0:
-            upper_bound = np.percentile(X_, 100-impute/2, axis=axis, 
-                                        keepdims=True)
-            lower_bound = np.percentile(X_, impute/2, axis=axis, keepdims=True)
-            X_ = np.maximum(np.minimum(X_, upper_bound), lower_bound)
+    # if impute is not None:
+    #     if isinstance(impute, float) and impute < 100.0 and impute > 0.0:
+    #         upper_bound = np.percentile(X_, 100-impute/2, axis=axis, 
+    #                                     keepdims=True)
+    #         lower_bound = np.percentile(X_, impute/2, axis=axis, keepdims=True)
+    #         X_ = np.maximum(np.minimum(X_, upper_bound), lower_bound)
 
     if mean_threshold is not None:
         if isinstance(mean_threshold, (int, float)):
             if axis == 1:
-                keep = X_.mean(axis=1)>mean_threshold
+                keep = X_train_.mean(axis=1)>mean_threshold
                 features_ =  features_[keep]
-                X_ = X_[keep, :]
+                X_train_ = X_train_[keep, :]
+                X_test_ = X_test_[keep, :]
             else:
-                keep = X_.mean(axis=0)>mean_threshold
+                keep = X_train_.mean(axis=0)>mean_threshold
                 features_ =  features_[keep]
-                X_ = X_[:, keep]
+                X_train_ = X_train_[:, keep]
+                X_test_ = X_test_[:, keep]
         else:
             raise ValueError("mean_threshold must be a float")
 
@@ -85,115 +93,50 @@ def process_data(X, features, feature_dim='row', mean_threshold=None,
             raise ValueError("Tuple must have only 2 numeric values")
         else:
             if axis == 1:
-                keep = np.logical_and(X_.std(axis=1)>1/scaling_threshold[1], 
-                                      X_.std(axis=1)<1/scaling_threshold[0])
+                keep = np.logical_and(X_train_.std(axis=1)>1/scaling_threshold[1], 
+                                      X_train_.std(axis=1)<1/scaling_threshold[0])
                 features_ =  features_[keep]
-                X_ = X_[keep, :]
+                X_train_ = X_train_[keep, :]
+                X_test_ = X_test_[keep, :]
             else:
-                keep = np.logical_and(X_.std(axis=0)>1/scaling_threshold[1], 
-                                      X_.std(axis=0)<1/scaling_threshold[0])
+                keep = np.logical_and(X_train_.std(axis=0)>1/scaling_threshold[1], 
+                                      X_train_.std(axis=0)<1/scaling_threshold[0])
                 features_ =  features_[keep]
-                X_ = X_[:, keep]
+                X_train_ = X_train_[:, keep]
+                X_test_ = X_test_[:, keep]
 
     # Always center data to have zero mean
-    X_ = X_ - np.mean(X_, axis=axis, keepdims=True)
+    mean_ = np.mean(X_train_, axis=axis, keepdims=True)
+    X_train_ = X_train_ - mean_
+    X_test_ = X_test_ - mean_
 
     # Standardise every gene series to have variance of 1
-    std_ = np.std(X_, axis=axis, keepdims=True)
+    std_ = np.std(X_train_, axis=axis, keepdims=True)
     if scale:
-        X_ = X_ / std_
+        X_train_ = X_train_ / std_
+        X_test_ = X_test_ / std_
 
     if axis == 1:
-        X_ = X_.T
+        X_train_ = X_train_.T
+        X_test_ = X_test_.T
     else:
         std_ = std_.T
     
-    return (X_, features_, std_)
+    return (X_train_, X_test_, features_, std_)
 
-def cyclic_ordering(X, s, feature_std=None, restarts=5, tol=1e-4, max_iter=100, 
-                    true_times=None, period=24.0, ncores=None):
-    """Find the CPCs and SLs for this chosem sparsity 's'
-
-    Parameters
-    ----------
-    X : ndarray
-        preprocessed data matrix
-    s : double
-        chosen l1 sparsity threshold for the loading vectors
-    feature_std : array, optional
-        weights for the different features that determine the st. dev. 
-        of the random initial conditions each restart, by default None
-    restarts : int, optional
-        the number of random initial conditions to begin alternating 
-        maximization from, by default 5
-    tol : _type_, optional
-        _description_, by default 1e-4
-    max_iter : int, optional
-        _description_, by default 200
-    true_times : _type_, optional
-        _description_, by default None
-    period : double, optional
-        period of the underlying rhythm, by default 24.0
-    ncores : int, optional
-        number of cores to use for parallel computation of the 
-        multistarts, by default None, which computes serially. See 
-        joblib.Parallel for convention, by default None
-
-    Returns
-    -------
-        {
-         'phase': ndarray
-            reconstructed phases of the samples,
-         'MAPE': float
-            median absolute position error,
-         'CPCs': ndarray
-            2D array containing the 2 cyclic principal components for 
-            chosen 's',
-         'SLs': ndarray
-            2D array containing the 2 sparse loading vectors for chosen 
-            's',
-         'd' : double
-            scale factor for the outer product approximation,
-         'true_times': ndarray 
-            known reference times for the samples to compare the 
-            reconstruction against,
-         'rss': float
-            rss of the chosen 's'
-    }
-    """    
-    decomp = _multi_start(X, s, feature_std, restarts=restarts, tol=tol, 
-                          tol_z=1e-3, max_iter=max_iter, ncores=ncores)
-    V = decomp['V']
-    U = decomp['U']
-
-    mape_value = np.nan
-    pred_phase = np.nan
-    mape_value, pred_phase = calculate_mape(U, true_times, period=period)
-
-    result = {'phase': pred_phase, 
-              'MAPE': mape_value, 
-              'CPCs': U, 
-              'SLs': V, 
-              'd': decomp['d'], 
-              'true_times': true_times, 
-              'rss': decomp['rss']}
-
-    return result
-
-def cross_validate(X, s_choices, features=None, feature_std=None, K=5, 
-                          restarts=5, tol=1e-3, tol_z=1e-4, max_iter=200, 
-                          true_times=None, period=24.0, ncores=None):
+def cross_validate(X_train, s_choices, features, feature_std=None, K=5, 
+                   restarts=5, tol=1e-3, tol_z=1e-4, max_iter=200, ncores=None):
     """Calculate the optimal choice of sparsity threshold 's' and the 
     cyclic ordering for the best 's'
     
     Parameters
     ----------
-    X : ndarray
-        preprocessed data matrix 
+    X_train : ndarray
+        preprocessed training data matrix 
     s_choices : array or list
         different values of l1 sparsity threshold to compare
-    features : array, optional
-        names of the features, by default None
+    features: array
+        names of the features
     feature_std : array, optional
         weights for the different features that determine the st. dev. 
         of the random initial conditions each restart, by default None
@@ -231,52 +174,79 @@ def cross_validate(X, s_choices, features=None, feature_std=None, K=5,
          'runs': list of dict
             the results structure from cross_validate for the different 
             lamb choices tried
-         'MAPE': float
-            median absolute position error
-         'pred_phase': ndarray
-            reconstructed phases of the samples
-         'true_times': ndarray 
-            true/reference times of the samples from the input
-         'rss': float
-            rss of the best performing lamb
          'CPCs': ndarray
             2D array containing the 2 cyclic principal components for 
             best_s
          'SLs': ndarray
             2D array containing the 2 sparse loading vectors for best_s
-         'features': ndarray
-            names of the features from the input 
+         'd' : double
+            scale factor for the outer product approximation
+         'rss': float
+            rss of the chosen 's'
     }
     """
-    indices = np.random.permutation(X.size)
-    fold_size = np.ceil(X.size/K).astype(int)
+    indices = np.random.permutation(X_train.size)
+    fold_size = np.ceil(X_train.size/K).astype(int)
 
     cv_indices = [indices[i*fold_size:(i+1)*fold_size] for i in range(K)]
     
     # Cross-validation
-    cv_s = [_calculate_cv(X, lamb, feature_std, restarts, tol, tol_z, max_iter, 
-                          cv_indices, ncores) for lamb in s_choices]
-    best_s = s_choices[np.argmin([cv_m for (cv_m, _) in cv_s])]
+    cv_stats = [_calculate_cv(X_train, lamb, feature_std, restarts, tol, tol_z, 
+                              max_iter, cv_indices, ncores) 
+                              for lamb in s_choices]
+    best_s = s_choices[np.argmin([cv_m for (cv_m, _) in cv_stats])]
 
-    best_fit = cyclic_ordering(X, best_s, feature_std=feature_std, 
-                               restarts=restarts, true_times=true_times, 
-                               tol=tol, max_iter=max_iter, period=period, 
-                               ncores=ncores)
+    best_fit = _multi_start(X_train, best_s, feature_std, restarts=restarts, tol=tol, 
+                            tol_z=1e-3, max_iter=max_iter, ncores=ncores)
 
     return {'best_s': best_s, 
             's_choices': s_choices, 
-            'runs': cv_s, 
-            'features': features} | best_fit
+            'runs': cv_stats, 
+            'CPCs': best_fit['U'], 
+            'SLs': best_fit['V'], 
+            'd': best_fit['d'],
+            'rss': best_fit['rss'],
+            'features': features
+            }
+
+def predict_time(X_test, cv_results, true_times=None, period=24.0):
+    """_summary_
+
+    Parameters
+    ----------
+    X_test : ndarray
+        preprocessed test data matrix 
+    cv_results : dict
+        output of the cross-validation on the test data
+    true_times : array, optional
+        known reference times for the samples to compare the 
+        reconstruction against, by default None
+    period : double, optional
+        period of the underlying rhythm, by default 24.0
+
+    Returns
+    -------
+    dict
+        _description_
+    """    
+    V = cv_results['SLs']
+    pred_phase, mape_value = calculate_mape(X_test @ V, true_times, 
+                                            period=period)
+
+    return {'phase': pred_phase, 
+            'MAPE': mape_value, 
+            'true_times': true_times} | cv_results
 
 def calculate_mape(Y, true_times=None, period=24.0):
-    """Calculate median absolute position error
+    """Calculate sample phase and median absolute position error, if 
+    true sample time provided.
 
     Parameters
     ----------
     Y : ndarray
         2D array consisting of the two sparse cyclic principal 
-        components, or 1D array consisting of estimated sample times 
-        (normalized by period)
+        components to estimate sample times or, 1D array consisting of 
+        estimated sample times (normalized by period)
     true_times : ndarray, optional
         1D array of true/reference sample times for each sample in data, 
         by default None
@@ -285,9 +255,9 @@ def calculate_mape(Y, true_times=None, period=24.0):
 
     Returns
     -------
-    (float, ndarray)
-        tuple containing the median absolute error, estimated phases of 
-        the samples
+    (ndarray, float)
+        tuple containing the estimated phases of the samples and the 
+        median absolute error if true_times and period provided
     """    
     Y = Y.squeeze()
     if Y.ndim == 2:
@@ -322,7 +292,7 @@ def calculate_mape(Y, true_times=None, period=24.0):
     else:
         mape_value = np.nan
         adjusted_opt_angles = acw_angles
-    return (mape_value, adjusted_opt_angles)
+    return (adjusted_opt_angles, mape_value)
 
 # INTERNAL FUNCTIONS
 
