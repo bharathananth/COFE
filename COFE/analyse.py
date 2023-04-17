@@ -47,17 +47,17 @@ def preprocess_data(X_train, X_test, features, feature_dim='row',
         if scaling_threshold has a length other than 2
     """    
     X_train_ = X_train.copy()
-    X_test_ = X_test.copy()
+    X_test_ = X_test.copy() if X_test is not None else None
     features_ = features.copy()
 
     if feature_dim == 'row':
         axis = 1
-        if X_train_.shape[0]!=X_test_.shape[0]:
+        if X_test_ is not None and X_train_.shape[0]!=X_test_.shape[0]:
             raise ValueError("Different number of features between "
                              "train and test data")
     elif feature_dim == 'col':
         axis = 0
-        if X_train_.shape[1]!=X_test_.shape[1]:
+        if X_test_ is not None and X_train_.shape[1]!=X_test_.shape[1]:
             raise ValueError("Different number of features between "
                              "train and test data")
     else:
@@ -77,12 +77,14 @@ def preprocess_data(X_train, X_test, features, feature_dim='row',
                 keep = X_train_.mean(axis=1)>mean_threshold
                 features_ =  features_[keep]
                 X_train_ = X_train_[keep, :]
-                X_test_ = X_test_[keep, :]
+                if X_test_ is not None:
+                    X_test_ = X_test_[keep, :]
             else:
                 keep = X_train_.mean(axis=0)>mean_threshold
                 features_ =  features_[keep]
                 X_train_ = X_train_[:, keep]
-                X_test_ = X_test_[:, keep]
+                if X_test_ is not None:
+                    X_test_ = X_test_[:, keep]
         else:
             raise ValueError("mean_threshold must be a float")
 
@@ -97,28 +99,33 @@ def preprocess_data(X_train, X_test, features, feature_dim='row',
                                       X_train_.std(axis=1)<1/scaling_threshold[0])
                 features_ =  features_[keep]
                 X_train_ = X_train_[keep, :]
-                X_test_ = X_test_[keep, :]
+                if X_test_ is not None:
+                    X_test_ = X_test_[keep, :]
             else:
                 keep = np.logical_and(X_train_.std(axis=0)>1/scaling_threshold[1], 
                                       X_train_.std(axis=0)<1/scaling_threshold[0])
                 features_ =  features_[keep]
                 X_train_ = X_train_[:, keep]
-                X_test_ = X_test_[:, keep]
+                if X_test_ is not None:
+                    X_test_ = X_test_[:, keep]
 
     # Always center data to have zero mean
     mean_ = np.mean(X_train_, axis=axis, keepdims=True)
     X_train_ = X_train_ - mean_
-    X_test_ = X_test_ - mean_
+    if X_test_ is not None:
+        X_test_ = X_test_ - mean_
 
     # Standardise every gene series to have variance of 1
     std_ = np.std(X_train_, axis=axis, keepdims=True)
     if scale:
         X_train_ = X_train_ / std_
-        X_test_ = X_test_ / std_
+        if X_test is not None:
+            X_test_ = X_test_ / std_
 
     if axis == 1:
         X_train_ = X_train_.T
-        X_test_ = X_test_.T
+        if X_test_ is not None:
+            X_test_ = X_test_.T
     else:
         std_ = std_.T
     
@@ -283,10 +290,15 @@ def calculate_mape(Y, true_times=None, period=24.0):
                 adjusted_opt_angles = (cw_angles \
                                        - _angular_mean(np.cos(cw_bias), 
                                                        np.sin(cw_bias))) % 1
-            mape_value = np.min([np.median(np.abs(_delta(scaled_time 
-                                                         - adjusted_opt_angles, 
-                                                         d))) 
-                                        for d in np.arange(-0.5, 0.5, 0.005)])
+            diff_offsets = [(np.median(np.abs(_delta(scaled_time 
+                                                     - adjusted_opt_angles, 
+                                                     d))), d) 
+                                        for d in np.arange(-0.5, 0.5, 0.005)]
+            best_offset_ind = np.argmin([offset 
+                                            for (offset, _) in diff_offsets])
+            mape_value = diff_offsets[best_offset_ind][0]
+            adjusted_opt_angles = adjusted_opt_angles \
+                                    + diff_offsets[best_offset_ind][1]
         except RuntimeWarning:
             mape_value = np.nan
     else:
