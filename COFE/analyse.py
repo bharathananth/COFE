@@ -5,11 +5,15 @@ loading vectors, and analyse data using SPCA principal components.
 """
 import numpy as np
 from scipy.linalg import norm
+from warnings import warn
+from scipy.interpolate import interp1d
 from joblib import delayed, Parallel
+# from statsmodels.nonparametric.smoothers_lowess import lowess
 from COFE.spca import sparse_cyclic_pca_masked, sparse_cyclic_pca
 
 def preprocess_data(X_train, X_test, features, feature_dim='row', 
-                 mean_threshold=None, scaling_threshold=None, scale=True):
+                 mean_threshold=None, scaling_threshold=None, 
+                 impute=None, scale=True):
     """Function to preprocess data prior to analysis including 
     centering, scaling and imputing.
 
@@ -64,12 +68,13 @@ def preprocess_data(X_train, X_test, features, feature_dim='row',
         raise ValueError("Invalid feature dimension.")
 
     # Imputing extreme values
-    # if impute is not None:
-    #     if isinstance(impute, float) and impute < 100.0 and impute > 0.0:
-    #         upper_bound = np.percentile(X_, 100-impute/2, axis=axis, 
-    #                                     keepdims=True)
-    #         lower_bound = np.percentile(X_, impute/2, axis=axis, keepdims=True)
-    #         X_ = np.maximum(np.minimum(X_, upper_bound), lower_bound)
+    if impute is not None:
+        if isinstance(impute, float) and impute < 100.0 and impute > 0.0:
+            upper_bound = np.percentile(X_train_, 100-impute/2, axis=axis, 
+                                        keepdims=True)
+            lower_bound = np.percentile(X_train_, impute/2, axis=axis, 
+                                        keepdims=True)
+            X_train_ = np.maximum(np.minimum(X_train_, upper_bound), lower_bound)
 
     if mean_threshold is not None:
         if isinstance(mean_threshold, (int, float)):
@@ -95,6 +100,10 @@ def preprocess_data(X_train, X_test, features, feature_dim='row',
             raise ValueError("Tuple must have only 2 numeric values")
         else:
             if axis == 1:
+                # mean_sd = lowess(X_train_.std(axis=1), X_train_.mean(axis=1), 
+                #                  frac=0.2)
+                # f = interp1d(mean_sd[:, 0], mean_sd[:, 1], bounds_error=False)
+                # keep = X_train_.std(axis=1) > f(mean_sd[:, 0])
                 keep = np.logical_and(X_train_.std(axis=1)>1/scaling_threshold[1], 
                                       X_train_.std(axis=1)<1/scaling_threshold[0])
                 features_ =  features_[keep]
@@ -102,6 +111,10 @@ def preprocess_data(X_train, X_test, features, feature_dim='row',
                 if X_test_ is not None:
                     X_test_ = X_test_[keep, :]
             else:
+                # mean_sd = lowess(X_train_.std(axis=0), X_train_.mean(axis=0), 
+                #                  frac=0.2)
+                # f = interp1d(mean_sd[:, 0], mean_sd[:, 1], bounds_error=False)
+                # keep = X_train_.std(axis=0) > f(mean_sd[:, 0])
                 keep = np.logical_and(X_train_.std(axis=0)>1/scaling_threshold[1], 
                                       X_train_.std(axis=0)<1/scaling_threshold[0])
                 features_ =  features_[keep]
@@ -312,6 +325,7 @@ def _calculate_cv(X, s, feature_std, restarts, tol, tol_z, max_iter, cv_indices,
                   ncores):
     rss_cv = list()
     mask_size = list()
+    count_nan = 0
     for cv_ind in cv_indices:
         mask = np.zeros(X.size, dtype=bool)
         mask[cv_ind] = True
@@ -319,9 +333,16 @@ def _calculate_cv(X, s, feature_std, restarts, tol, tol_z, max_iter, cv_indices,
         decomp = _multi_start(X_, s, feature_std, restarts, tol, tol_z,
                               max_iter, ncores)
         rss_cv.append(decomp['cv_err']) 
+        count_nan = count_nan + np.isnan(decomp['cv_err'])
         mask_size.append(np.sum(mask))
-        mean_rss = np.array(rss_cv)/np.array(mask_size)
-    return((np.sum(rss_cv)/X.size, np.std(mean_rss)/np.sqrt(len(cv_indices))))
+    if count_nan > len(cv_indices)/2:
+        warn("Too many runs did not converge. CV results might be unreliable."
+        "Try increasing max_iter.")
+    rss_cv = np.ma.array(rss_cv, mask = np.isnan(rss_cv))
+    mask_size = np.ma.array(mask_size, mask = np.isnan(rss_cv))
+    mean_rss = rss_cv/mask_size
+    return(rss_cv.sum()/mask_size.sum(), 
+           mean_rss.std()/np.sqrt(len(cv_indices)))
 
 def _multi_start(X, s, feature_std, restarts, tol, tol_z, max_iter, ncores):
     if ncores is None:
