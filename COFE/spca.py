@@ -188,10 +188,9 @@ def sparse_cyclic_pca_masked(X, s=None, tol=1e-3, tol_z=1e-5, max_iter=200,
 
     sparsify = False if s is None else True
 
-    Z = X.data.copy()
-    rng = np.random.default_rng() 
-    Z[X.mask] = rng.standard_normal(size=np.ma.count_masked(X))
+    Z = np.where(X.mask, X.mean(axis=0), X.data) 
     
+    rng = np.random.default_rng()
     v_1 = rng.laplace(size=(Z.shape[1],1))
     if feature_std is not None:
         if feature_std.shape[0] != Z.shape[1]:
@@ -217,8 +216,8 @@ def sparse_cyclic_pca_masked(X, s=None, tol=1e-3, tol_z=1e-5, max_iter=200,
 
     Z_imputed = d * (u_1 @ v_1.T + u_2 @ v_2.T)
 
-    rss = norm(Z - Z_imputed, ord='fro') ** 2
-    cv_err = norm(X.data - Z_imputed) ** 2
+    rss = norm(Z, ord='fro') ** 2
+    cv_err = np.nan
     count = 0
 
     while count < max_iter:
@@ -266,7 +265,7 @@ def sparse_cyclic_pca_masked(X, s=None, tol=1e-3, tol_z=1e-5, max_iter=200,
             count += 1
         if converged:
             rss_new = norm(Z - Z_imputed, ord='fro') ** 2
-            err = np.abs(rss_new - rss)/rss
+            err = np.abs(rss_new - rss)
             rss = rss_new
             E = (X.data - Z)
             cv_err = norm(E, ord='fro') ** 2
