@@ -130,7 +130,7 @@ def sparse_cyclic_pca(X, s=None, tol=1e-3, max_iter=100, feature_std=None):
             'converged': (count<max_iter), 
             'rss': rss}
 
-def sparse_cyclic_pca_masked(X, s=None, tol=1e-3, tol_z=1e-5, max_iter=200, 
+def sparse_cyclic_pca_masked(X, s=None, tol=1e-3, tol_z=1e-6, max_iter=200, 
                              feature_std=None):
     """Generates a pair of loading vectors and cyclic principal 
     components that satisfy specific sparsity constraint for data with 
@@ -265,7 +265,7 @@ def sparse_cyclic_pca_masked(X, s=None, tol=1e-3, tol_z=1e-5, max_iter=200,
             count += 1
         if converged:
             rss_new = norm(Z - Z_imputed, ord='fro') ** 2
-            err = np.abs(rss_new - rss)
+            err = np.abs(rss_new - rss)/rss
             rss = rss_new
             E = (X.data - Z)
             cv_err = norm(E, ord='fro') ** 2

@@ -145,7 +145,7 @@ def preprocess_data(X_train, X_test, features, feature_dim='row',
     return (X_train_, X_test_, features_, std_)
 
 def cross_validate(X_train, s_choices, features, feature_std=None, K=5, 
-                   restarts=5, tol=1e-3, tol_z=1e-4, max_iter=200, ncores=None):
+                   restarts=5, tol=1e-3, tol_z=1e-6, max_iter=200, ncores=None):
     """Calculate the optimal choice of sparsity threshold 's' and the 
     cyclic ordering for the best 's'
     
