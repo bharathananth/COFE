@@ -7,7 +7,7 @@ import numpy as np
 from scipy.linalg import norm
 from warnings import warn
 
-def sparse_cyclic_pca(X, s=None, tol=1e-3, max_iter=100, feature_std=None):
+def sparse_cyclic_pca(X, s=None, tol=1e-7, max_iter=300, feature_std=None):
     """Generates a pair of loading vectors and cyclic principal 
     components that satisfy specific sparsity constraint.
 
@@ -23,7 +23,7 @@ def sparse_cyclic_pca(X, s=None, tol=1e-3, max_iter=100, feature_std=None):
         1e-3
     max_iter : int, optional
         maximum number of iterations to look for convergence, by default
-         100
+         300
     feature_std : array-like, optional
         weights for the different features that determine the st. dev. 
         of the random initial conditions of loading vectors, by default 
@@ -43,7 +43,9 @@ def sparse_cyclic_pca(X, s=None, tol=1e-3, max_iter=100, feature_std=None):
                 if the iterations converged
             'rss': float
                 final rss after convergence. With no convergence, rss is 
-                set to -1.
+                set to -1
+            'score': float
+                final score being optimized
         }
 
     Raises
@@ -82,44 +84,33 @@ def sparse_cyclic_pca(X, s=None, tol=1e-3, max_iter=100, feature_std=None):
     X_T = X.T
     
     count = 0
-    rss = -1.0
+    score = (2 * d * u_1.T @ X @ v_1 + 2 * d * u_2.T @ X @ v_2 \
+                    - N * d ** 2).item()
     
     while count < max_iter:
         y_1 = X @ v_1
         y_2 = X @ v_2
 
         y_circ = np.sqrt(y_1 **2 + y_2 ** 2)
-        u_1_n = y_1/y_circ
-        u_2_n = y_2/y_circ
-
-        u_1_diff = norm(u_1_n - u_1, ord=2) \
-                    /norm(u_1, ord=2)
-        u_2_diff = norm(u_2_n - u_2, ord=2) \
-                    /norm(u_2, ord=2)
-
-        u_1 = u_1_n.copy()
-        u_2 = u_2_n.copy()
+        u_1 = y_1/y_circ
+        u_2 = y_2/y_circ
 
         XTu_1 = X_T @ u_1
         S_XTu_1 = _opt_thresh(XTu_1, s) if sparsify else XTu_1.copy()
-        v_1_n = S_XTu_1/norm(S_XTu_1, ord=2)
+        v_1 = S_XTu_1/norm(S_XTu_1, ord=2)
         XTu_2 = X_T @ u_2
         S_XTu_2 = _opt_thresh(XTu_2, s) if sparsify else XTu_2.copy()
-        v_2_n = S_XTu_2/norm(S_XTu_2, ord=2)
+        v_2 = S_XTu_2/norm(S_XTu_2, ord=2)
 
-        v_1_diff = norm(v_1_n - v_1, ord=2)
-        v_2_diff = norm(v_2_n - v_2, ord=2)
+        d = (u_1.T @ X @ v_1 + u_2.T @ X @ v_2).item()/N
 
-        v_1 = v_1_n.copy()
-        v_2 = v_2_n.copy()
+        score_new = (2 * d * u_1.T @ X @ v_1 + 2 * d * u_2.T @ X @ v_2 \
+                        - N * d ** 2).item()
+        err = np.abs(score_new - score)/score
+        score = score_new
 
-        d_n = (u_1.T @ X @ v_1 + u_2.T @ X @ v_2).item()/N
-        d_diff = np.abs(d_n - d)/np.abs(d)
-        d = d_n
-
-        if u_1_diff < tol and u_2_diff < tol \
-            and v_1_diff < tol and v_2_diff < tol and d_diff<tol:
-            rss = norm(X - d * (u_1 @ v_1.T + u_2 @ v_2.T), ord='fro') ** 2
+        if err<tol:
+            rss = norm(X - d*(u_1 @ v_1.T + u_2 @ v_2.T), ord='fro') ** 2
             break
         
         count += 1
@@ -128,13 +119,14 @@ def sparse_cyclic_pca(X, s=None, tol=1e-3, max_iter=100, feature_std=None):
             'U': np.hstack((u_1, u_2)), 
             'd': d, 
             'converged': (count<max_iter), 
-            'rss': rss}
+            'rss': rss,
+            'score': score}
 
-def sparse_cyclic_pca_masked(X, s=None, tol=1e-3, tol_z=1e-6, max_iter=200, 
+def sparse_cyclic_pca_masked(X, s=None, tol=1e-6, tol_z=1e-7, max_iter=300, 
                              feature_std=None):
     """Generates a pair of loading vectors and cyclic principal 
     components that satisfy specific sparsity constraint for data with 
-    missing values. The code then imputes these missing values as well.
+    missing values. The code then imputes these missing values.
 
     Parameters
     ----------
@@ -145,13 +137,13 @@ def sparse_cyclic_pca_masked(X, s=None, tol=1e-3, tol_z=1e-6, max_iter=200,
          float('inf')
     tol : float, optional
         convergence criterion for the iterative algorithm, by default 
-        1e-3
+        1e-6
     tol_z : float, optional
         convergence criterion for the iterative algorithm, by default 
-        1e-5
+        1e-7
     max_iter : int, optional
         maximum number of iterations to look for convergence, by default 
-        200
+        300
     feature_std : array-like, optional
         weights for the different features that determine the st. dev. 
         of the random initial conditions, by default None
@@ -171,6 +163,11 @@ def sparse_cyclic_pca_masked(X, s=None, tol=1e-3, tol_z=1e-6, max_iter=200,
             'rss': float
                 final rss after convergence. With no convergence, rss is
                  set to -1.
+            'cv_err': float
+                cross validation error when input is data with test values 
+                masked
+            'X_imputed': ndarray
+                the input data with missing values imputed
         }
 
     Raises
@@ -194,16 +191,16 @@ def sparse_cyclic_pca_masked(X, s=None, tol=1e-3, tol_z=1e-6, max_iter=200,
     v_1 = rng.laplace(size=(Z.shape[1],1))
     if feature_std is not None:
         if feature_std.shape[0] != Z.shape[1]:
-            raise ValueError("Feature standard deviations not the same size as "
-                             "feature.")
+            raise ValueError("Feature standard deviations not the same size as"
+                             " feature.")
         v_1 = v_1 * feature_std
     Sv_1 = _opt_thresh(v_1, s) if sparsify else v_1.copy()
     v_1 = Sv_1/norm(Sv_1, ord=2, check_finite=False)
     v_2 = rng.laplace(size=(Z.shape[1],1))
     if feature_std is not None:
         if feature_std.shape[0] != Z.shape[1]:
-            raise ValueError("Feature standard deviations not the same size as "
-                             "feature.")
+            raise ValueError("Feature standard deviations not the same size as"
+                             " feature.")
         v_2 = v_2 * feature_std
     Sv_2 = _opt_thresh(v_2, s) if sparsify else v_2.copy()
     v_2 = Sv_2/norm(Sv_2, ord=2, check_finite=False)
@@ -214,70 +211,57 @@ def sparse_cyclic_pca_masked(X, s=None, tol=1e-3, tol_z=1e-6, max_iter=200,
 
     d = (u_1.T @ Z @ v_1 + u_2.T @ Z @ v_2).item()/N
 
-    Z_imputed = d * (u_1 @ v_1.T + u_2 @ v_2.T)
+    score = (2 * d * u_1.T @ Z @ v_1 + 2 * d * u_2.T @ Z @ v_2 \
+                        - N * d ** 2).item()
 
     rss = norm(Z, ord='fro') ** 2
-    cv_err = np.nan
     count = 0
 
     while count < max_iter:
         Z_T = Z.T
-        converged = False
-        while count < max_iter:
-            y_1 = Z @ v_1
-            y_2 = Z @ v_2
+        y_1 = Z @ v_1
+        y_2 = Z @ v_2
 
-            y_circ = np.sqrt(y_1 ** 2 + y_2 ** 2)
-            u_1_n = y_1/y_circ
-            u_2_n = y_2/y_circ
+        y_circ = np.sqrt(y_1 ** 2 + y_2 ** 2)
+        u_1 = y_1/y_circ
+        u_2 = y_2/y_circ
 
-            u_1_diff = norm(u_1_n - u_1, ord=2) \
-                        /norm(u_1, ord=2)
-            u_2_diff = norm(u_2_n - u_2, ord=2) \
-                        /norm(u_2, ord=2)
+        XTu_1 = Z_T @ u_1
+        S_XTu_1 = _opt_thresh(XTu_1, s) if sparsify else XTu_1.copy()
+        v_1 = S_XTu_1/norm(S_XTu_1, ord=2)
+        XTu_2 = Z_T @ u_2
+        S_XTu_2 = _opt_thresh(XTu_2, s) if sparsify else XTu_2.copy()
+        v_2 = S_XTu_2/norm(S_XTu_2, ord=2)
 
-            u_1 = u_1_n.copy()
-            u_2 = u_2_n.copy()
+        d = (u_1.T @ Z @ v_1 + u_2.T @ Z @ v_2).item()/N
+        
+        score_new = (2 * d * u_1.T @ Z @ v_1 + 2 * d * u_2.T @ Z @ v_2 \
+                        - N * d ** 2).item()
+        err = np.abs(score_new - score)/score
+        score = score_new
 
-            XTu_1 = Z_T @ u_1
-            S_XTu_1 = _opt_thresh(XTu_1, s) if sparsify else XTu_1.copy()
-            v_1_n = S_XTu_1/norm(S_XTu_1, ord=2)
-            XTu_2 = Z_T @ u_2
-            S_XTu_2 = _opt_thresh(XTu_2, s) if sparsify else XTu_2.copy()
-            v_2_n = S_XTu_2/norm(S_XTu_2, ord=2)
-
-            v_1_diff = norm(v_1_n - v_1, ord=2)
-            v_2_diff = norm(v_2_n - v_2, ord=2)
-
-            v_1 = v_1_n.copy()
-            v_2 = v_2_n.copy()
-
-            d_n = (u_1.T @ Z @ v_1 + u_2.T @ Z @ v_2).item()/N
-            d_diff = np.abs(d_n - d)/d
-            d = d_n
-
-            if u_1_diff < tol and u_2_diff < tol \
-                and v_1_diff < tol and v_2_diff < tol and d_diff < tol:
-                Z_imputed = d * (u_1 @ v_1.T + u_2 @ v_2.T)
-                Z[X.mask] = Z_imputed[X.mask]
-                converged = True
-                break
-            count += 1
-        if converged:
+        if err < tol:
+            Z_imputed = d * (u_1 @ v_1.T + u_2 @ v_2.T)
+            Z[X.mask] = Z_imputed[X.mask]
             rss_new = norm(Z - Z_imputed, ord='fro') ** 2
-            err = np.abs(rss_new - rss)/rss
+            err_z = np.abs(rss_new - rss)/rss
             rss = rss_new
-            E = (X.data - Z)
-            cv_err = norm(E, ord='fro') ** 2
-            if err < tol_z:
+            if err_z < tol_z:
+                E = (X.data - Z)
+                cv_err = norm(E, ord='fro') ** 2
                 break
+        count += 1
     
+    if count == max_iter:
+        cv_err = np.nan
+
     return {'V': np.hstack((v_1, v_2)), 
             'U': np.hstack((u_1, u_2)), 
             'd': d, 
-            'converged': converged, 
+            'converged': count < max_iter, 
             'rss': rss, 
-            'cv_err': cv_err}
+            'cv_err': cv_err,
+            'X_imputed': Z_imputed}
 
 def _opt_thresh(x, s):
     """Finds the optimal soft-thresholding to satisfy both l1 and l2 contraints
@@ -292,8 +276,8 @@ def _opt_thresh(x, s):
         (Note: the array needs to be l2 normalized to satisfy desired l1)
 
     Reference:
-        Guillemot et al. (2019) A constrained singular value decomposition method 
-        that integrates sparsity and orthogonality
+        Guillemot et al. (2019) A constrained singular value 
+        decomposition method that integrates sparsity and orthogonality
     """
     x_tilde = np.sort(np.fabs(x), axis=None)[::-1]
     if norm(x/norm(x, ord=2), 
