@@ -86,6 +86,7 @@ def sparse_cyclic_pca(X, s=None, tol=1e-7, max_iter=300, feature_std=None):
     count = 0
     score = (2 * d * u_1.T @ X @ v_1 + 2 * d * u_2.T @ X @ v_2 \
                     - N * d ** 2).item()
+    rss = norm(X, ord='fro') ** 2
     
     while count < max_iter:
         y_1 = X @ v_1
@@ -216,6 +217,7 @@ def sparse_cyclic_pca_masked(X, s=None, tol=1e-6, tol_z=1e-7, max_iter=300,
 
     rss = norm(Z, ord='fro') ** 2
     count = 0
+    Z_imputed = Z.copy()
 
     while count < max_iter:
         Z_T = Z.T
@@ -280,8 +282,7 @@ def _opt_thresh(x, s):
         decomposition method that integrates sparsity and orthogonality
     """
     x_tilde = np.sort(np.fabs(x), axis=None)[::-1]
-    if norm(x/norm(x, ord=2), 
-                         ord = 1) <= s:
+    if norm(x/norm(x, ord=2), ord = 1) <= s:
         return x
     else:
         def psi(c):
