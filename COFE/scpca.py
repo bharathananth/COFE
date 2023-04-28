@@ -7,7 +7,7 @@ import numpy as np
 from scipy.linalg import norm
 from warnings import warn
 
-def sparse_cyclic_pca(X, s=None, tol=1e-7, max_iter=300, feature_std=None):
+def sparse_cyclic_pca(X, s=None, tol=1e-6, max_iter=300, feature_std=None):
     """Generates a pair of loading vectors and cyclic principal 
     components that satisfy specific sparsity constraint.
 
@@ -110,7 +110,7 @@ def sparse_cyclic_pca(X, s=None, tol=1e-7, max_iter=300, feature_std=None):
         err = np.abs(score_new - score)/score
         score = score_new
 
-        if err<tol:
+        if err<=tol:
             rss = norm(X - d*(u_1 @ v_1.T + u_2 @ v_2.T), ord='fro') ** 2
             break
         
@@ -123,7 +123,7 @@ def sparse_cyclic_pca(X, s=None, tol=1e-7, max_iter=300, feature_std=None):
             'rss': rss,
             'score': score}
 
-def sparse_cyclic_pca_masked(X, s=None, tol=1e-6, tol_z=1e-7, max_iter=300, 
+def sparse_cyclic_pca_masked(X, s=None, tol=1e-3, tol_z=1e-6, max_iter=300, 
                              feature_std=None):
     """Generates a pair of loading vectors and cyclic principal 
     components that satisfy specific sparsity constraint for data with 
@@ -242,13 +242,13 @@ def sparse_cyclic_pca_masked(X, s=None, tol=1e-6, tol_z=1e-7, max_iter=300,
         err = np.abs(score_new - score)/score
         score = score_new
 
-        if err < tol:
+        if err <= tol:
             Z_imputed = d * (u_1 @ v_1.T + u_2 @ v_2.T)
             Z[X.mask] = Z_imputed[X.mask]
             rss_new = norm(Z - Z_imputed, ord='fro') ** 2
             err_z = np.abs(rss_new - rss)/rss
             rss = rss_new
-            if err_z < tol_z:
+            if err_z <= tol_z:
                 E = (X.data - Z)
                 cv_err = norm(E, ord='fro') ** 2
                 break
