@@ -9,7 +9,7 @@ from warnings import warn
 from scipy.interpolate import interp1d
 from joblib import delayed, Parallel
 # from statsmodels.nonparametric.smoothers_lowess import lowess
-from COFE.spca import sparse_cyclic_pca_masked, sparse_cyclic_pca
+from COFE.scpca import sparse_cyclic_pca_masked, sparse_cyclic_pca
 
 def preprocess_data(X_train, X_test, features, feature_dim='row', 
                  mean_threshold=None, scaling_threshold=None, 
@@ -100,10 +100,6 @@ def preprocess_data(X_train, X_test, features, feature_dim='row',
             raise ValueError("Tuple must have only 2 numeric values")
         else:
             if axis == 1:
-                # mean_sd = lowess(X_train_.std(axis=1), X_train_.mean(axis=1), 
-                #                  frac=0.2)
-                # f = interp1d(mean_sd[:, 0], mean_sd[:, 1], bounds_error=False)
-                # keep = X_train_.std(axis=1) > f(mean_sd[:, 0])
                 keep = np.logical_and(X_train_.std(axis=1)>1/scaling_threshold[1], 
                                       X_train_.std(axis=1)<1/scaling_threshold[0])
                 features_ =  features_[keep]
@@ -111,10 +107,6 @@ def preprocess_data(X_train, X_test, features, feature_dim='row',
                 if X_test_ is not None:
                     X_test_ = X_test_[keep, :]
             else:
-                # mean_sd = lowess(X_train_.std(axis=0), X_train_.mean(axis=0), 
-                #                  frac=0.2)
-                # f = interp1d(mean_sd[:, 0], mean_sd[:, 1], bounds_error=False)
-                # keep = X_train_.std(axis=0) > f(mean_sd[:, 0])
                 keep = np.logical_and(X_train_.std(axis=0)>1/scaling_threshold[1], 
                                       X_train_.std(axis=0)<1/scaling_threshold[0])
                 features_ =  features_[keep]
@@ -145,7 +137,8 @@ def preprocess_data(X_train, X_test, features, feature_dim='row',
     return (X_train_, X_test_, features_, std_)
 
 def cross_validate(X_train, s_choices, features, feature_std=None, K=5, 
-                   restarts=5, tol=1e-3, tol_z=1e-6, max_iter=200, ncores=None):
+                   restarts=5, tol=1e-3, tol_z=1e-6, max_iter=400, 
+                   ncores=None):
     """Calculate the optimal choice of sparsity threshold 's' and the 
     cyclic ordering for the best 's'
     
@@ -170,10 +163,10 @@ def cross_validate(X_train, s_choices, features, feature_std=None, K=5,
         cyclic PCA, by default 1e-3
     tol_z : double, optional
         convergence threshold for imputation of missing and cross 
-        validation, by default 1e-5
+        validation, by default 1e-6
     max_iter : int, optional
         maximum number of iterations of the alternating maximization, 
-        by default 200
+        by default 400
     true_times : array, optional
         known reference times for the samples to compare the 
         reconstruction against, by default None
@@ -216,8 +209,9 @@ def cross_validate(X_train, s_choices, features, feature_std=None, K=5,
                               for lamb in s_choices]
     best_s = s_choices[np.argmin([cv_m for (cv_m, _) in cv_stats])]
 
-    best_fit = _multi_start(X_train, best_s, feature_std, restarts=restarts, tol=tol, 
-                            tol_z=1e-3, max_iter=max_iter, ncores=ncores)
+    best_fit = _multi_start(X_train, best_s, feature_std, restarts=restarts, 
+                            tol=tol, tol_z=1e-3, max_iter=max_iter, 
+                            ncores=ncores)
 
     return {'best_s': best_s, 
             's_choices': s_choices, 
@@ -226,7 +220,7 @@ def cross_validate(X_train, s_choices, features, feature_std=None, K=5,
             'SLs': best_fit['V'], 
             'd': best_fit['d'],
             'rss': best_fit['rss'],
-            'features': features
+            'features': features,
             }
 
 def predict_time(X_test, cv_results, true_times=None, period=24.0):
@@ -329,6 +323,8 @@ def _calculate_cv(X, s, feature_std, restarts, tol, tol_z, max_iter, cv_indices,
     for cv_ind in cv_indices:
         mask = np.zeros(X.size, dtype=bool)
         mask[cv_ind] = True
+        if np.any(np.reshape(mask, X.shape).sum(axis=0) == X.shape[0]):
+            print("all masked column")
         X_ = np.ma.array(X, copy=True, mask=np.reshape(mask, X.shape))
         decomp = _multi_start(X_, s, feature_std, restarts, tol, tol_z,
                               max_iter, ncores)
@@ -336,8 +332,8 @@ def _calculate_cv(X, s, feature_std, restarts, tol, tol_z, max_iter, cv_indices,
         count_nan = count_nan + np.isnan(decomp['cv_err'])
         mask_size.append(np.sum(mask))
     if count_nan > len(cv_indices)/2:
-        warn("Too many runs did not converge. CV results might be unreliable."
-        "Try increasing max_iter.")
+        warn("Too many runs did not converge for s={}. CV results might be unreliable."
+        "Try increasing max_iter or reducing the tolerances.".format(s))
     rss_cv = np.ma.array(rss_cv, mask = np.isnan(rss_cv))
     mask_size = np.ma.array(mask_size, mask = np.isnan(rss_cv))
     mean_rss = rss_cv/mask_size
