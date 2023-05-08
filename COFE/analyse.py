@@ -137,7 +137,7 @@ def preprocess_data(X_train, X_test, features, feature_dim='row',
     return (X_train_, X_test_, features_, std_)
 
 def cross_validate(X_train, s_choices, features, feature_std=None, K=5, 
-                   restarts=5, tol=1e-3, tol_z=1e-6, max_iter=400, 
+                   repeats=3, restarts=5, tol=1e-3, tol_z=1e-6, max_iter=400, 
                    ncores=None):
     """Calculate the optimal choice of sparsity threshold 's' and the 
     cyclic ordering for the best 's'
@@ -155,6 +155,9 @@ def cross_validate(X_train, s_choices, features, feature_std=None, K=5,
         of the random initial conditions each restart, by default None
     K : int, optional
         number of folds used for cross-validation
+    repeats : int, optional
+        the number of different random repetition (of the splits) in 
+        K-fold cross-validation, by default 3
     restarts : int, optional
         the number of random initial conditions to begin alternating 
         maximization from, by default 5
@@ -198,14 +201,15 @@ def cross_validate(X_train, s_choices, features, feature_std=None, K=5,
             rss of the chosen 's'
     }
     """
-    indices = np.random.permutation(X_train.size)
+    indices = [np.random.permutation(X_train.size) for _ in range(repeats)]
     fold_size = np.ceil(X_train.size/K).astype(int)
 
-    cv_indices = [indices[i*fold_size:(i+1)*fold_size] for i in range(K)]
+    cv_indices = [inds[i*fold_size:(i+1)*fold_size] for inds in indices 
+                  for i in range(K)]
     
     # Cross-validation
-    cv_stats = [_calculate_cv(X_train, lamb, feature_std, restarts, tol, tol_z, 
-                              max_iter, cv_indices, ncores) 
+    cv_stats = [_calculate_cv(X_train, lamb, feature_std, K, repeats, restarts, 
+                              tol, tol_z, max_iter, cv_indices, ncores) 
                               for lamb in s_choices]
     best_s = s_choices[np.argmin([cv_m for (cv_m, _) in cv_stats])]
 
@@ -315,8 +319,8 @@ def calculate_mape(Y, true_times=None, period=24.0):
 
 # INTERNAL FUNCTIONS
 
-def _calculate_cv(X, s, feature_std, restarts, tol, tol_z, max_iter, cv_indices, 
-                  ncores):
+def _calculate_cv(X, s, feature_std, K, repeats, restarts, tol, tol_z, 
+                  max_iter, cv_indices, ncores):
     rss_cv = list()
     mask_size = list()
     count_nan = 0
@@ -334,11 +338,11 @@ def _calculate_cv(X, s, feature_std, restarts, tol, tol_z, max_iter, cv_indices,
     if count_nan > len(cv_indices)/2:
         warn("Too many runs did not converge for s={}. CV results might be unreliable."
         "Try increasing max_iter or reducing the tolerances.".format(s))
-    rss_cv = np.ma.array(rss_cv, mask = np.isnan(rss_cv))
-    mask_size = np.ma.array(mask_size, mask = np.isnan(rss_cv))
-    mean_rss = rss_cv/mask_size
-    return(rss_cv.sum()/mask_size.sum(), 
-           mean_rss.std()/np.sqrt(len(cv_indices)))
+    rss_cv = np.ma.array(rss_cv, mask = np.isnan(rss_cv)).reshape((repeats, K))
+    mask_size = np.ma.array(mask_size, 
+                            mask = np.isnan(rss_cv)).reshape((repeats, K))
+    mean_rss = rss_cv.sum(axis=1)/mask_size.sum(axis=1)
+    return(mean_rss.mean(), mean_rss.std())
 
 def _multi_start(X, s, feature_std, restarts, tol, tol_z, max_iter, ncores):
     if ncores is None:
