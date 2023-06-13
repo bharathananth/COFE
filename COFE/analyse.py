@@ -146,8 +146,9 @@ def cross_validate(X_train, s_choices, features, feature_std=None, K=5,
     ----------
     X_train : ndarray
         preprocessed training data matrix 
-    s_choices : array or list
-        different values of l1 sparsity threshold to compare
+    s_choices : array or list or None
+        different values of l1 sparsity threshold to compare. If None 
+        then directly computes non-sparse solution.
     features: array
         names of the features
     feature_std : array, optional
@@ -201,17 +202,21 @@ def cross_validate(X_train, s_choices, features, feature_std=None, K=5,
             rss of the chosen 's'
     }
     """
-    indices = [np.random.permutation(X_train.size) for _ in range(repeats)]
-    fold_size = np.ceil(X_train.size/K).astype(int)
+    if s_choices is None:
+        best_s = None
+    else:
+        indices = [np.random.permutation(X_train.size) for _ in range(repeats)]
+        fold_size = np.ceil(X_train.size/K).astype(int)
 
-    cv_indices = [inds[i*fold_size:(i+1)*fold_size] for inds in indices 
-                  for i in range(K)]
-    
-    # Cross-validation
-    cv_stats = [_calculate_cv(X_train, lamb, feature_std, K, repeats, restarts, 
-                              tol, tol_z, max_iter, cv_indices, ncores) 
-                              for lamb in s_choices]
-    best_s = s_choices[np.argmin([cv_m for (cv_m, _) in cv_stats])]
+        cv_indices = [inds[i*fold_size:(i+1)*fold_size] for inds in indices 
+                    for i in range(K)]
+        
+        # Cross-validation
+        cv_stats = [_calculate_cv(X_train, lamb, feature_std, K, repeats, 
+                                  restarts, tol, tol_z, max_iter, cv_indices, 
+                                  ncores) 
+                                for lamb in s_choices]
+        best_s = s_choices[np.argmin([cv_m for (cv_m, _) in cv_stats])]
 
     best_fit = _multi_start(X_train, best_s, feature_std, restarts=restarts, 
                             tol=tol, tol_z=1e-3, max_iter=max_iter, 
