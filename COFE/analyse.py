@@ -204,6 +204,7 @@ def cross_validate(X_train, s_choices, features, feature_std=None, K=5,
     """
     if s_choices is None:
         best_s = None
+        cv_stats = None
     else:
         indices = [np.random.permutation(X_train.size) for _ in range(repeats)]
         fold_size = np.ceil(X_train.size/K).astype(int)
