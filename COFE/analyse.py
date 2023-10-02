@@ -29,8 +29,9 @@ def preprocess_data(X_train, X_test, features, feature_dim='row',
     mean_threshold : float, optional
         minimum mean level of features that are retained for analysis, 
         by default None
-    scaling_threshold : (float, float), optional
-        the range of reciprocal feature standard, by default None
+    scaling_threshold : float, optional
+        reciprocal of minimum standard deviation of features that are 
+        retained for analysis, by default None
     impute : float, optional
         features outside central percentile are truncated to the chosen 
         level , by default None
@@ -45,10 +46,8 @@ def preprocess_data(X_train, X_test, features, feature_dim='row',
     ------
     ValueError
         if mean_threshold is not int or float
-    TypeError
-        if scaling_threshold is not a tuple
     ValueError
-        if scaling_threshold has a length other than 2
+        if scaling_threshold is not int or float
     """    
     X_train_ = X_train.copy()
     X_test_ = X_test.copy() if X_test is not None else None
@@ -94,25 +93,21 @@ def preprocess_data(X_train, X_test, features, feature_dim='row',
             raise ValueError("mean_threshold must be a float")
 
     if scaling_threshold is not None:
-        if type(scaling_threshold) != tuple:
-            raise TypeError("scaling_threshold must be a tuple if not None") 
-        elif len(scaling_threshold) != 2:
-            raise ValueError("Tuple must have only 2 numeric values")
-        else:
+        if isinstance(mean_threshold, (int, float)):
             if axis == 1:
-                keep = np.logical_and(X_train_.std(axis=1)>1/scaling_threshold[1], 
-                                      X_train_.std(axis=1)<1/scaling_threshold[0])
+                keep = X_train_.std(axis=1)>1/scaling_threshold 
                 features_ =  features_[keep]
                 X_train_ = X_train_[keep, :]
                 if X_test_ is not None:
                     X_test_ = X_test_[keep, :]
             else:
-                keep = np.logical_and(X_train_.std(axis=0)>1/scaling_threshold[1], 
-                                      X_train_.std(axis=0)<1/scaling_threshold[0])
+                keep = X_train_.std(axis=0)>1/scaling_threshold
                 features_ =  features_[keep]
                 X_train_ = X_train_[:, keep]
                 if X_test_ is not None:
                     X_test_ = X_test_[:, keep]
+        else:
+            raise ValueError("scaling_threshold must be a float")
 
     # Always center data to have zero mean
     mean_ = np.mean(X_train_, axis=axis, keepdims=True)
