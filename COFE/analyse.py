@@ -249,11 +249,12 @@ def predict_time(X_test, cv_results, true_times=None, period=24.0):
         _description_
     """    
     V = cv_results['SLs']
-    pred_phase, mape_value = calculate_mape(X_test @ V, true_times, 
+    pred_phase, mape_value, circ_corr = calculate_mape(X_test @ V, true_times, 
                                             period=period)
 
     return {'phase': pred_phase, 
             'MAPE': mape_value, 
+            'FCC': circ_corr,
             'true_times': true_times} | cv_results
 
 def calculate_mape(Y, true_times=None, period=24.0):
@@ -281,44 +282,61 @@ def calculate_mape(Y, true_times=None, period=24.0):
     Y = Y.squeeze()
     if Y.ndim == 2:
         # Scaled angular positions
-        acw_angles, cw_angles = _scaled_angles(Y[:, 0], Y[:, 1])
+        angles = _scaled_angles(Y[:, 0], Y[:, 1])
     elif Y.ndim == 1:
-        acw_angles, cw_angles = Y % 1.0, -Y % 1.0
+        angles = Y % 1.0
+    
+    mape_value = np.nan
+    corr_coef = np.nan
 
     if true_times is not None:
-        try: 
-            # Scaled time values
-            scaled_time = true_times/period - true_times//period
-            # Choosing direction (bias variation)
-            acw_bias = _delta(acw_angles, scaled_time) * 2*np.pi
-            cw_bias = _delta(cw_angles, scaled_time) * 2*np.pi
-            # Optimal direction is direction with lowest bias value std dev
-            if _angular_spread(np.cos(acw_bias), np.sin(acw_bias)) < \
-                _angular_spread(np.cos(cw_bias), np.sin(cw_bias)):
-                adjusted_opt_angles = (acw_angles \
-                                       - _angular_mean(np.cos(acw_bias), 
-                                                       np.sin(acw_bias))) % 1
-            else:
-                adjusted_opt_angles = (cw_angles \
-                                       - _angular_mean(np.cos(cw_bias), 
-                                                       np.sin(cw_bias))) % 1
-            diff_offsets = [(np.median(np.abs(_delta(scaled_time 
-                                                     - adjusted_opt_angles, 
-                                                     d))), d) 
-                                        for d in np.arange(-0.5, 0.5, 0.005)]
-            best_offset_ind = np.argmin([offset 
-                                            for (offset, _) in diff_offsets])
-            mape_value = diff_offsets[best_offset_ind][0]
-            adjusted_opt_angles = adjusted_opt_angles \
-                                    + diff_offsets[best_offset_ind][1]
-        except RuntimeWarning:
-            mape_value = np.nan
+        # Scaled time values
+        scaled_time = true_times/period % 1
+
+        diff_offsets_cw = [(np.median(np.abs(_delta(scaled_time 
+                                                    - angles, 
+                                                    d))), d) 
+                                    for d in np.arange(-0.5, 0.5, 0.005)]
+
+        diff_offsets_acw = [(np.median(np.abs(_delta(scaled_time 
+                                                    + angles, 
+                                                    d))), d) 
+                                    for d in np.arange(-0.5, 0.5, 0.005)]
+        
+        best_offset_ind_cw = np.argmin(list(zip(*diff_offsets_cw))[0]) 
+        
+        best_offset_ind_acw = np.argmin(list(zip(*diff_offsets_acw))[0])
+
+        if diff_offsets_cw[best_offset_ind_cw][0]< \
+                            diff_offsets_acw[best_offset_ind_acw][0]:
+            adjusted_opt_angles = (angles +
+                                diff_offsets_cw[best_offset_ind_cw][1]) % 1
+            mape_value = diff_offsets_cw[best_offset_ind_cw][0]
+        else: 
+            adjusted_opt_angles = (-angles +
+                            diff_offsets_acw[best_offset_ind_acw][1]) % 1
+            mape_value = diff_offsets_acw[best_offset_ind_acw][0]
+
+        corr_coef = _fischer_circ_corr(angles, scaled_time)
     else:
-        mape_value = np.nan
-        adjusted_opt_angles = acw_angles
-    return (adjusted_opt_angles, mape_value)
+        adjusted_opt_angles = angles
+
+    return (adjusted_opt_angles, mape_value, corr_coef)
 
 # INTERNAL FUNCTIONS
+    
+def _fischer_circ_corr(phi_1, phi_2):
+    phi_1 = phi_1 % 1
+    phi_2 = phi_2 % 1
+    ph_1 = 2*np.pi*phi_1
+    ph_2 = 2*np.pi*phi_2
+    mean_ph_1 = _angular_mean(np.cos(ph_1), np.sin(ph_1))
+    mean_ph_2 = _angular_mean(np.cos(ph_2), np.sin(ph_2))
+    num = np.sum(np.sin(ph_1 - mean_ph_1)*np.sin(ph_2 - mean_ph_2))
+    den = np.sqrt(np.sum(np.sin(ph_1 - mean_ph_1)**2) * \
+                                    np.sum(np.sin(ph_2 - mean_ph_2)**2))
+    rho = num/den
+    return(rho)
 
 def _calculate_cv(X, s, feature_std, K, repeats, restarts, tol, tol_z, 
                   max_iter, cv_indices, ncores):
@@ -373,13 +391,13 @@ def _multi_start(X, s, feature_std, restarts, tol, tol_z, max_iter, ncores):
     return runs[ind]
 
 def _scaled_angles(x, y):
-    return (np.arctan2(y, x)/(2*np.pi)) % 1,  (np.arctan2(-y, x)/(2*np.pi)) % 1
+    return (np.arctan2(y, x)/(2*np.pi)) % 1
 
 def _delta(x, y):
     return ((x - y + 1/2) % 1) - 1/2
 
 def _angular_mean(x, y):
-    return (np.arctan2(np.sum(y), np.sum(x))/(2*np.pi)) % 1
+    return np.arctan2(np.sum(y), np.sum(x))
 
 def _angular_spread(x, y):
     return x.shape[0] - np.sqrt(np.sum(x) ** 2 + np.sum(y) ** 2)
