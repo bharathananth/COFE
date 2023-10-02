@@ -212,7 +212,7 @@ def cross_validate(X_train, s_choices, features, feature_std=None, K=5,
                                   restarts, tol, tol_z, max_iter, cv_indices, 
                                   ncores) 
                                 for lamb in s_choices]
-        best_s = s_choices[np.argmin([cv_m for (cv_m, _) in cv_stats])]
+        best_s = s_choices[np.argmin([cv_m for (cv_m, _, _) in cv_stats])]
 
     best_fit = _multi_start(X_train, best_s, feature_std, restarts=restarts, 
                             tol=tol, tol_z=1e-3, max_iter=max_iter, 
@@ -336,14 +336,14 @@ def _calculate_cv(X, s, feature_std, K, repeats, restarts, tol, tol_z,
         rss_cv.append(decomp['cv_err']) 
         count_nan = count_nan + np.isnan(decomp['cv_err'])
         mask_size.append(np.sum(mask))
-    if count_nan > len(cv_indices)/2:
+    if count_nan > len(cv_indices)/4:
         warn("Too many runs did not converge for s={}. CV results might be unreliable."
         "Try increasing max_iter or reducing the tolerances.".format(s))
     rss_cv = np.ma.array(rss_cv, mask = np.isnan(rss_cv)).reshape((repeats, K))
     mask_size = np.ma.array(mask_size, 
                             mask = np.isnan(rss_cv)).reshape((repeats, K))
     mean_rss = rss_cv.sum(axis=1)/mask_size.sum(axis=1)
-    return(mean_rss.mean(), mean_rss.std())
+    return(mean_rss.mean(), mean_rss.std(), rss_cv)
 
 def _multi_start(X, s, feature_std, restarts, tol, tol_z, max_iter, ncores):
     if ncores is None:
