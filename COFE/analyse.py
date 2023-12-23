@@ -201,11 +201,7 @@ def cross_validate(X_train, s_choices, features, feature_std=None, K=5,
         best_s = None
         cv_stats = None
     else:
-        indices = [np.random.permutation(X_train.size) for _ in range(repeats)]
-        fold_size = np.ceil(X_train.size/K).astype(int)
-
-        cv_indices = [inds[i*fold_size:(i+1)*fold_size] for inds in indices 
-                    for i in range(K)]
+        cv_indices = _shuffled_checkerboard(X_train.shape, K, repeats)
         
         # Cross-validation
         cv_stats = [_calculate_cv(X_train, lamb, feature_std, K, repeats, 
@@ -324,6 +320,20 @@ def calculate_mape(Y, true_times=None, period=24.0):
     return (adjusted_opt_angles, mape_value, corr_coef)
 
 # INTERNAL FUNCTIONS
+
+def _shuffled_checkerboard(size, K, repeats):
+    nrow, ncol = size[0], size[1]
+    rng = np.random.default_rng()
+    return_list = list()
+    for r in range(repeats):
+        row_permute = rng.permutation(nrow)
+        col_permute = rng.permutation(ncol)
+        for i in range(K):
+            row_one = np.arange(i, nrow, step=K)
+            row_ind = np.array([(row_one + nrow*i + i) % nrow for i in range(ncol)], dtype='int').flatten()
+            col_ind = np.array([i*np.ones(row_one.shape) for i in range(ncol)], dtype='int').flatten()
+            return_list.append(np.ravel_multi_index((row_permute[row_ind], col_permute[col_ind]), (nrow, ncol)))
+    return(return_list)
     
 def _fischer_circ_corr(phi_1, phi_2):
     phi_1 = phi_1 % 1
