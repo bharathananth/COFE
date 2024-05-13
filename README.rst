@@ -2,31 +2,68 @@
 Cyclic Ordering with Feature Extraction
 =======================================
 
+This package (COFE - *kaa·fee*) implements a nonlinear dimensionality reduction technique with a circular constraint on the (dependent) principal components.
 
-.. image:: https://img.shields.io/pypi/v/COFE.svg
-        :target: https://pypi.python.org/pypi/COFE
-
-.. image:: https://img.shields.io/travis/bharathananth/COFE.svg
-        :target: https://travis-ci.com/bharathananth/COFE
-
-.. image:: https://readthedocs.org/projects/COFE/badge/?version=latest
-        :target: https://COFE.readthedocs.io/en/latest/?version=latest
-        :alt: Documentation Status
-
-
-
-
-Python Boilerplate contains all the boilerplate you need to create a Python package.
-
-
+* Preprint: https://doi.org/10.1101/2024.03.13.584582
 * Free software: GNU General Public License v3
-* Documentation: https://COFE.readthedocs.io.
-
 
 Features
 --------
 
-* TODO
+* Assigns time-labels to high-dimensional data representing an underlying rhythmic process
+* Identifies features in the data that contribute to the temporal reordering
+* Regularized unsupervised machine learning approach with automated choice of hyperparameters.
+
+Installation
+------------
+
+* Prerequisites
+   - Python installed on your system. You can download and install Python from the `official Python website <https://www.python.org/downloads/>`_.
+   - Git installed on your system. You can download and install Git from the `official Git website <https://git-scm.com/downloads>`_.
+
+* Clone the COFE Repository
+   #. Open a terminal or command prompt.
+   #. Navigate to the directory where you want to install COFE.
+   #. Clone the COFE repository from GitHub by running the following command:
+
+   .. code-block:: bash
+   
+      git clone https://github.com/COFE-Project/COFE.git
+
+* Install Dependencies
+   #. Navigate to the COFE directory:
+
+      .. code-block:: bash
+      
+         cd COFE
+
+   #. Install the required dependencies using pip (Python's package installer). Run the following command:
+
+      .. code-block:: bash
+      
+         pip install -r requirements.txt
+
+* Installation
+   After installing the dependencies, you can install COFE by running the following command:
+
+   .. code-block:: bash
+   
+      python setup.py install
+
+* Verify Installation
+   To verify that COFE is installed correctly, you can try importing it in a Python environment. Open a Python interpreter or create a new Python script, and then try importing COFE:
+
+   .. code-block:: python
+   
+      import COFE.analyse
+      import COFE.plot
+      import COFE.scpca
+
+Usage
+-----
+
+Once installed, you can start using COFE in your Python projects. Refer to the COFE documentation or README on the GitHub repository for usage instructions and examples.
+
 
 Credits
 -------
