@@ -2,7 +2,7 @@
 Cyclic Ordering with Feature Extraction
 =======================================
 
-This package (COFE - *kaa·fee*) implements a nonlinear dimensionality reduction technique with a circular constraint on the (dependent) principal components.
+This package (COFE - *kaa·fee*) implements nonlinear dimensionality reduction with a circular constraint on the (dependent) principal components.
 
 * Preprint: https://doi.org/10.1101/2024.03.13.584582
 * Free software: GNU General Public License v3
@@ -30,25 +30,18 @@ Installation
    
       git clone https://github.com/COFE-Project/COFE.git
 
-* Install Dependencies
+* Installation
    #. Navigate to the COFE directory:
 
       .. code-block:: bash
       
          cd COFE
 
-   #. Install the required dependencies using pip (Python's package installer). Run the following command:
+   #. After installing the dependencies, you can install COFE by running the following command:
 
       .. code-block:: bash
-      
-         pip install -r requirements.txt
-
-* Installation
-   After installing the dependencies, you can install COFE by running the following command:
-
-   .. code-block:: bash
    
-      python setup.py install
+         python setup.py install
 
 * Verify Installation
    To verify that COFE is installed correctly, you can try importing it in a Python environment. Open a Python interpreter or create a new Python script, and then try importing COFE:

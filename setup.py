@@ -10,7 +10,9 @@ with open('README.rst') as readme_file:
 with open('HISTORY.rst') as history_file:
     history = history_file.read()
 
-requirements = [ ]
+requirements = ['biothings_client>=0.2.6',
+'joblib>=1.2.0', 'matplotlib>=3.6.2', 'numpy>=1.23.5','pandas>=1.5.2',
+'scipy>=1.10.1', 'seaborn>=0.13.2']
 
 test_requirements = [ ]
 
@@ -28,7 +30,7 @@ setup(
         'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
     ],
-    description="Python Boilerplate contains all the boilerplate you need to create a Python package.",
+    description="The COFE package implements nonlinear dimensionality reduction with a circular constraint on the (dependent) principal components.",
     install_requires=requirements,
     license="GNU General Public License v3",
     long_description=readme + '\n\n' + history,
