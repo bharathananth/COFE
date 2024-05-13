@@ -1,4 +1,4 @@
-"""Functions to carry out the standard and sparse Cyclic PCA.
+"""Implementation of standard and sparse cyclic PCA.
 
 This module contains functions to find sparse loading vectors and SPCA
 principal components for a particular data set.
@@ -30,23 +30,22 @@ def sparse_cyclic_pca(X, s=None, tol=1e-6, max_iter=300, feature_std=None):
         None
 
     Returns
-    -------
-    dict
-        {
-            'V': ndarray 
-                sparse right eigenvectors as columns,
-            'U': ndarray
-                circular left eigenvectors as columns,
-            'd': double
-                scale factor for the outer product approximation,
-            'converged': bool
-                if the iterations converged
-            'rss': float
-                final rss after convergence. With no convergence, rss is 
-                set to -1
-            'score': float
-                final score being optimized
-        }
+    -------    
+    {
+        'V': ndarray 
+            sparse right eigenvectors as columns,
+        'U': ndarray
+            circular left eigenvectors as columns,
+        'd': double
+            scale factor for the outer product approximation,
+        'converged': bool
+            if the iterations converged
+        'rss': float
+            final rss after convergence. With no convergence, rss is 
+            set to -1
+        'score': float
+            final score being optimized
+    }
 
     Raises
     ------
@@ -151,25 +150,24 @@ def sparse_cyclic_pca_masked(X, s=None, tol=1e-3, tol_z=1e-6, max_iter=300,
 
     Returns
     -------
-    dict
-        {
-            'V': ndarray 
-                sparse right eigenvectors as columns,
-            'U': ndarray
-                circular left eigenvectors as columns,
-            'd': double
-                scale factor for the outer product approximation,
-            'converged': bool
-                if the iterations converged
-            'rss': float
-                final rss after convergence. With no convergence, rss is
-                 set to -1.
-            'cv_err': float
-                cross validation error when input is data with test values 
-                masked
-            'X_imputed': ndarray
-                the input data with missing values imputed
-        }
+    {
+        'V': ndarray 
+            sparse right eigenvectors as columns,
+        'U': ndarray
+            circular left eigenvectors as columns,
+        'd': double
+            scale factor for the outer product approximation,
+        'converged': bool
+            if the iterations converged
+        'rss': float
+            final rss after convergence. With no convergence, rss is
+                set to -1.
+        'cv_err': float
+            cross validation error when input is data with test values 
+            masked
+        'X_imputed': ndarray
+            the input data with missing values imputed
+    }
 
     Raises
     ------
@@ -268,19 +266,25 @@ def sparse_cyclic_pca_masked(X, s=None, tol=1e-3, tol_z=1e-6, max_iter=300,
 def _opt_thresh(x, s):
     """Finds the optimal soft-thresholding to satisfy both l1 and l2 contraints
 
-    Args: 
-        x (ndarray): 1D numpy array to be soft thresholded
-        s (float): the desired l1 constraint
+    Parameters
+    ----------
+    x : ndarray
+        1D numpy array to be soft thresholded
+    s : float
+        the desired l1 constraint
 
-    Returns:
-
-        ndarray that has been soft-thresholded 
+    Returns
+    -------
+    ndarray
+        input array that has been soft-thresholded
         (Note: the array needs to be l2 normalized to satisfy desired l1)
 
-    Reference:
+    Reference
+    ---------
         Guillemot et al. (2019) A constrained singular value 
         decomposition method that integrates sparsity and orthogonality
     """
+
     x_tilde = np.sort(np.fabs(x), axis=None)[::-1]
     if norm(x/norm(x, ord=2), ord = 1) <= s:
         return x

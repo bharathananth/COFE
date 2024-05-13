@@ -1,4 +1,4 @@
-"""Functions to analyse gene expression data sets using SPCA based methods.
+"""Functions to apply sparse cyclic PCA to high-dimensional data sets.
 
 This module contains functions to process data, analyse data using sparse 
 loading vectors, and analyse data using SPCA principal components.
@@ -8,7 +8,6 @@ from scipy.linalg import norm
 from warnings import warn
 from scipy.interpolate import interp1d
 from joblib import delayed, Parallel
-# from statsmodels.nonparametric.smoothers_lowess import lowess
 from COFE.scpca import sparse_cyclic_pca_masked, sparse_cyclic_pca
 
 def preprocess_data(X_train, X_test, features, feature_dim='row', 
@@ -73,7 +72,8 @@ def preprocess_data(X_train, X_test, features, feature_dim='row',
                                         keepdims=True)
             lower_bound = np.percentile(X_train_, impute/2, axis=axis, 
                                         keepdims=True)
-            X_train_ = np.maximum(np.minimum(X_train_, upper_bound), lower_bound)
+            X_train_ = np.maximum(np.minimum(X_train_, upper_bound), 
+                                  lower_bound)
 
     if mean_threshold is not None:
         if isinstance(mean_threshold, (int, float)):
@@ -225,7 +225,8 @@ def cross_validate(X_train, s_choices, features, feature_std=None, K=5,
             }
 
 def predict_time(X_test, cv_results, true_times=None, period=24.0):
-    """_summary_
+    """Predict the phase for test data using the training results from the 
+    cross validation run on the training data
 
     Parameters
     ----------
@@ -241,8 +242,17 @@ def predict_time(X_test, cv_results, true_times=None, period=24.0):
 
     Returns
     -------
-    dict
-        _description_
+    Cross-validation results augmented with following information
+    {
+        'phase': ndarray
+            the estimated phases of the samples modulo 1
+         'MAPE': float
+            median absolute error of prediction if true_times are provided
+         'FCC': float
+            Fisher (circular) correlation coefficient if true_times are provided
+         'true_times': ndarray
+            1D array of true/reference sample times for each sample in data
+    }
     """    
     V = cv_results['SLs']
     pred_phase, mape_value, circ_corr = calculate_mape(X_test @ V, true_times, 
@@ -330,9 +340,13 @@ def _shuffled_checkerboard(size, K, repeats):
         col_permute = rng.permutation(ncol)
         for i in range(K):
             row_one = np.arange(i, nrow, step=K)
-            row_ind = np.array([(row_one + nrow*i + i) % nrow for i in range(ncol)], dtype='int').flatten()
-            col_ind = np.array([i*np.ones(row_one.shape) for i in range(ncol)], dtype='int').flatten()
-            return_list.append(np.ravel_multi_index((row_permute[row_ind], col_permute[col_ind]), (nrow, ncol)))
+            row_ind = np.array([(row_one + nrow*i + i) % nrow 
+                                for i in range(ncol)], dtype='int').flatten()
+            col_ind = np.array([i*np.ones(row_one.shape) 
+                                for i in range(ncol)], dtype='int').flatten()
+            return_list.append(np.ravel_multi_index((row_permute[row_ind], 
+                                                     col_permute[col_ind]), 
+                                                     (nrow, ncol)))
     return(return_list)
     
 def _fischer_circ_corr(phi_1, phi_2):
@@ -365,8 +379,9 @@ def _calculate_cv(X, s, feature_std, K, repeats, restarts, tol, tol_z,
         count_nan = count_nan + np.isnan(decomp['cv_err'])
         mask_size.append(np.sum(mask))
     if count_nan > len(cv_indices)/4:
-        warn("Too many runs did not converge for s={}. CV results might be unreliable."
-        "Try increasing max_iter or reducing the tolerances.".format(s))
+        warn("Too many runs did not converge for s={}. CV results might be "
+        "unreliable. Try increasing max_iter or reducing the tolerances."
+        .format(s))
     rss_cv = np.ma.array(rss_cv, mask = np.isnan(rss_cv)).reshape((repeats, K))
     mask_size = np.ma.array(mask_size, 
                             mask = np.isnan(rss_cv)).reshape((repeats, K))
