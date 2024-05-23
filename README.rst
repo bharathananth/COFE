@@ -28,7 +28,7 @@ Installation
 
    .. code-block:: bash
    
-      git clone https://github.com/COFE-Project/COFE.git
+      git clone https://github.com/bharathananth/COFE.git
 
 * Installation
    #. Navigate to the COFE directory:
