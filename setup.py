@@ -19,16 +19,14 @@ test_requirements = [ ]
 setup(
     author="Bharath Ananthasubramaniam",
     author_email='bharath.ananthasubramaniam@hu-berlin.de',
-    python_requires='>=3.6',
+    python_requires='>=3.9',
     classifiers=[
         'Development Status :: 2 - Pre-Alpha',
         'Intended Audience :: Developers',
         'License :: OSI Approved :: GNU General Public License v3 (GPLv3)',
         'Natural Language :: English',
         'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.6',
-        'Programming Language :: Python :: 3.7',
-        'Programming Language :: Python :: 3.8',
+        'Programming Language :: Python :: 3.9',
     ],
     description="The COFE package implements nonlinear dimensionality reduction with a circular constraint on the (dependent) principal components.",
     install_requires=requirements,
