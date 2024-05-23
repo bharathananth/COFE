@@ -55,7 +55,7 @@ Installation
 Usage
 -----
 
-Once installed, you can start using COFE in your Python projects. Refer to the COFE documentation or README on the GitHub repository for usage instructions and examples.
+Once installed, you can start using COFE in your Python projects. Refer to the docstrings of COFE functions for usage.
 
 
 Credits
