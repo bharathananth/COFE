@@ -18,7 +18,7 @@ Installation
 ------------
 
 * Prerequisites
-   - Python installed on your system. You can download and install Python from the `official Python website <https://www.python.org/downloads/>`_.
+   - Python 3.9 or better installed on your system. You can download and install Python from the `official Python website <https://www.python.org/downloads/>`_.
    - Git installed on your system. You can download and install Git from the `official Git website <https://git-scm.com/downloads>`_.
 
 * Clone the COFE Repository
