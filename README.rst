@@ -41,7 +41,7 @@ Installation
 
       .. code-block:: bash
    
-         python3 setup.py install
+         python -m pip install .
 
 * Verify Installation
    To verify that COFE is installed correctly, you can try importing it in a Python environment. Open a Python interpreter or create a new Python script, and then try importing COFE:
