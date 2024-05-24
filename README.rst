@@ -37,7 +37,7 @@ Installation
       
          cd COFE
 
-   #. After installing the dependencies, you can install COFE by running the following command:
+   #. You can install COFE and its dependencies by running the following command:
 
       .. code-block:: bash
    
