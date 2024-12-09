@@ -52,10 +52,13 @@ Installation
       import COFE.plot
       import COFE.scpca
 
-Usage
+Getting Started
 -----
 
-Once installed, you can start using COFE in your Python projects. Refer to the docstrings of COFE functions for usage.
+You can get started with COFE by running it on synthetic data, as illustrated in the Jupyter notebook 
+``synthetic_data_example.ipynb`` located in the ``docs/`` folder.
+
+For detailed usage, refer to the docstrings of the COFE functions.
 
 
 Credits
