@@ -1,6 +1,11 @@
+
 =======================================
 Cyclic Ordering with Feature Extraction
 =======================================
+.. image:: images/coffee_stain.png
+   :alt: COFE Logo
+   :align: right
+   :width: 200px
 
 This package (COFE - *kaa·fee*) implements nonlinear dimensionality reduction with a circular constraint on the (dependent) principal components.
 
