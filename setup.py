@@ -12,7 +12,7 @@ with open('HISTORY.rst') as history_file:
 
 requirements = ['biothings_client>=0.2.6',
 'joblib>=1.2.0', 'matplotlib>=3.6.2', 'numpy>=1.23.5','pandas>=1.5.2',
-'scipy>=1.10.1', 'seaborn>=0.13.2']
+'scipy>=1.10.1', 'seaborn>=0.13.2', 'scikit-learn>=1.2.2', 'ipykernel>=6.29.5']
 
 test_requirements = [ ]
 
