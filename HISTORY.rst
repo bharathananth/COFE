@@ -2,7 +2,12 @@
 History
 =======
 
-0.1.0 (2021-09-28)
+1.1.0 (2024-12-10)
+------------------
+* Introduction of the "Getting Started" Jupyter notebook
+* New COFE Logo
+
+1.0.0 (2024-05-24)
 ------------------
 
-* First release on PyPI.
+* Release of complete package on GitHub.
