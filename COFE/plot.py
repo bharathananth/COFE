@@ -47,7 +47,7 @@ def plot_circular_ordering(results, time = None, period = 24, filename=None,
     df = df.melt(id_vars='t', var_name='var', value_name='val')
     sns.scatterplot(x='t', y='val', hue='var', ax=ax, data=df, 
                     palette="colorblind")
-    ax.set_xlabel(r"predicted sample phase ($\times$ period)")
+    ax.set_xlabel("predicted sample time (/period)")
     ax.set_ylabel("cyclic principal components")
     ax.set_xlim([0,1])
     handles, labels = ax.get_legend_handles_labels()
@@ -62,8 +62,8 @@ def plot_circular_ordering(results, time = None, period = 24, filename=None,
                         c=['0.3'] * results['phase'].shape[0])
         ax.set_aspect(1)
         sns.despine()
-        ax.set_xlabel(r"true sample phase ($\times$ period)")
-        ax.set_ylabel(r"predicted sample phase ($\times$ period)")
+        ax.set_xlabel("true sample time (/period)")
+        ax.set_ylabel("predicted sample time (/period)")
     fig.tight_layout()
 
     if isinstance(filename, str):
@@ -90,8 +90,8 @@ def plot_cv_run(cv_results, **kwargs):
     ax = fig.add_subplot(gs[0, 0]);
     ax.errorbar(df1.index, df1['cv_mean'], yerr=df1['cv_se'], fmt='ko-', 
                 ecolor='dimgray')
-    ax.set_xlabel("different l1 constraints")
-    ax.set_ylabel("residual sum of squared errors")
+    ax.set_xlabel("sparsity parameter")
+    ax.set_ylabel("average imputation error")
     sns.despine()
     
     fig.tight_layout()
