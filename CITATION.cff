@@ -1,0 +1,42 @@
+# This CITATION.cff file was generated with cffinit.
+# Visit https://bit.ly/cffinit to generate yours today!
+
+cff-version: 1.2.0
+title: Cyclic Ordering with Feature Extraction (COFE)
+message: Please cite both the paper and the software.
+type: software
+authors:
+  - given-names: Bharath
+    family-names: Ananthasubramaniam
+    email: bharath.ananthasubramaniam@hu-berlin.de
+    affiliation: Humboldt-Universität zu Berlin
+    orcid: 'https://orcid.org/0000-0003-4467-1546'
+  - given-names: Ramji
+    family-names: Venkataramanan
+    email: rv285@cam.ac.uk
+    affiliation: University of Cambridge
+    orcid: 'https://orcid.org/0000-0001-7915-5432'
+identifiers:
+  - type: doi
+    value: 10.1101/2024.03.13.584582
+    description: Biorxiv preprint
+repository-code: 'https://github.com/bharathananth/COFE'
+abstract: >-
+  COFE is a novel unsupervised machine learning approach
+  that can use single high-throughput omics samples (without
+  time labels) from individuals to reconstruct circadian
+  rhythms across cohorts. COFE can simultaneously assign
+  time labels to samples and identify rhythmic data features
+  used for temporal reconstruction, while also detecting
+  invalid orderings. 
+keywords:
+  - machine learning
+  - snapshot data
+  - circadian medicine
+  - dimensionality reduction
+  - latent representation
+  - manifold learning
+license: GPL-3.0
+commit: bc7e83c
+version: 1.0.0
+date-released: '2024-12-10'
