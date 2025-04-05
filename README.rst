@@ -25,6 +25,10 @@ Installation
 * Prerequisites
    - Python 3.9 or better installed on your system. You can download and install Python from the `official Python website <https://www.python.org/downloads/>`_.
    - Git installed on your system. You can download and install Git from the `official Git website <https://git-scm.com/downloads>`_.
+   - Conda installed on your system. You can download and install conda from `official Conda website <https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html>`_.
+
+* Install and 
+   #. Open a terminal or command prom 
 
 * Clone the COFE Repository
    #. Open a terminal or command prompt.
@@ -42,6 +46,13 @@ Installation
       
          cd COFE
 
+   #. Install and switch to *circular_ordering-env* environment: 
+
+      .. code-block:: bash
+
+        conda env create -f environment.yml
+        conda activate circular_ordering-env
+
    #. You can install COFE and its dependencies by running the following command:
 
       .. code-block:: bash
@@ -58,7 +69,7 @@ Installation
       import COFE.scpca
 
 Getting Started
------
+---------------
 
 You can get started with COFE by running it on synthetic data, as illustrated in the Jupyter notebook 
 ``synthetic_data_example.ipynb`` located in the ``docs/`` folder.
