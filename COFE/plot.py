@@ -82,8 +82,7 @@ def plot_cv_run(cv_results, **kwargs):
     sns.set_style("ticks");
     sns.set_context("notebook")
 
-    df1 = pd.DataFrame.from_dict({lamb: cv_results['runs'][i][:2] for i, 
-                                  lamb in enumerate(cv_results['s_choices'])}, 
+    df1 = pd.DataFrame.from_dict({lamb: cv_results['runs'][i] for i, lamb in enumerate(cv_results['s_choices'])}, 
                                   orient='index', columns=['cv_mean', 'cv_se'])
     fig = mp.pyplot.figure(**kwargs)
     gs = mp.gridspec.GridSpec(1, 1)
