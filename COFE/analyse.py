@@ -211,7 +211,8 @@ def cross_validate(X_train, s_choices, features, feature_std=None, K=5,
                                         for cv_ind in cv_indices 
                                         for _ in range(restarts)]
         else:
-            runs = Parallel(n_jobs=ncores)(
+            runs = Parallel(n_jobs=ncores, backend="loky", 
+                            backend_kwargs=dict(inner_max_num_threads=1))(
                 delayed(_calculate_cv)(
                     X_train, lamb, feature_std, tol, tol_z, max_iter, cv_ind
                     ) 
@@ -236,14 +237,14 @@ def cross_validate(X_train, s_choices, features, feature_std=None, K=5,
         if any(count_nan > len(cv_indices)/4):
             warn("Too many runs did not converge for s={}. CV results might be "
         "unreliable. Try increasing max_iter or reducing the tolerances."
-        .format(s[count_nan > len(cv_indices)/4]))
+        .format(s_choices[count_nan > len(cv_indices)/4]))
 
         mask_size = np.array([m.shape[0] for m in cv_indices]).reshape(repeats, K)
         
         mask_size = np.ma.array(np.repeat(mask_size[None, :, :], 
                                     s_choices.shape[0], axis=0), 
                                 mask = np.isnan(rss_cv))
-                
+                        
         mean_rss = rss_cv.sum(axis=2)/mask_size.sum(axis=2)
 
         cv_stats = list(zip(mean_rss.mean(axis=1), mean_rss.std(axis=1)))
