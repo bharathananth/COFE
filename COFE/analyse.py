@@ -204,14 +204,27 @@ def cross_validate(X_train, s_choices, features, feature_std=None, K=5,
         cv_indices = _shuffled_checkerboard(X_train.shape, K, repeats)
         
         # Cross-validation
-        cv_stats = [_calculate_cv(X_train, lamb, feature_std, K, repeats, 
-                                  restarts, tol, tol_z, max_iter, cv_indices, 
-                                  ncores) 
+        cv_stats = [_calculate_cv(X=X_train, 
+                                  s=lamb, 
+                                  feature_std=feature_std, 
+                                  K=K, 
+                                  repeats=repeats, 
+                                  restarts=restarts, 
+                                  tol=tol, 
+                                  tol_z=tol_z, 
+                                  max_iter=max_iter, 
+                                  cv_indices=cv_indices, 
+                                  ncores=ncores) 
                                 for lamb in s_choices]
         best_s = s_choices[np.argmin([cv_m for (cv_m, _, _) in cv_stats])]
 
-    best_fit = _multi_start(X_train, best_s, feature_std, restarts=restarts, 
-                            tol=tol, tol_z=1e-3, max_iter=max_iter, 
+    best_fit = _multi_start(X=X_train, 
+                            s=best_s, 
+                            feature_std=feature_std, 
+                            restarts=restarts, 
+                            tol=tol, 
+                            tol_z=tol_z, 
+                            max_iter=max_iter, 
                             ncores=ncores)
 
     return {'best_s': best_s, 
@@ -373,8 +386,14 @@ def _calculate_cv(X, s, feature_std, K, repeats, restarts, tol, tol_z,
         if np.any(np.reshape(mask, X.shape).sum(axis=0) == X.shape[0]):
             print("all masked column")
         X_ = np.ma.array(X, copy=True, mask=np.reshape(mask, X.shape))
-        decomp = _multi_start(X_, s, feature_std, restarts, tol, tol_z,
-                              max_iter, ncores)
+        decomp = _multi_start(X=X_, 
+                              s=s, 
+                              feature_std=feature_std, 
+                              restarts=restarts, 
+                              tol=tol, 
+                              tol_z=tol_z,
+                              max_iter=max_iter, 
+                              ncores=ncores)
         rss_cv.append(decomp['cv_err']) 
         count_nan = count_nan + np.isnan(decomp['cv_err'])
         mask_size.append(np.sum(mask))
@@ -391,24 +410,36 @@ def _calculate_cv(X, s, feature_std, K, repeats, restarts, tol, tol_z,
 def _multi_start(X, s, feature_std, restarts, tol, tol_z, max_iter, ncores):
     if ncores is None:
         if isinstance(X, np.ma.MaskedArray):
-            runs = [sparse_cyclic_pca_masked(X, s=s, tol=tol, tol_z=tol_z, 
+            runs = [sparse_cyclic_pca_masked(X=X, 
+                                             s=s, 
+                                             tol=tol, 
+                                             tol_z=tol_z, 
                                              max_iter=max_iter, 
                                              feature_std=feature_std) 
                                              for _ in range(restarts)]
         else:
-            runs = [sparse_cyclic_pca(X, s=s, tol=tol, max_iter=max_iter, 
+            runs = [sparse_cyclic_pca(X=X, 
+                                      s=s, 
+                                      tol=tol, 
+                                      max_iter=max_iter, 
                                       feature_std=feature_std) 
                                       for _ in range(restarts)]
     else:
         if isinstance(X, np.ma.MaskedArray):
             runs = Parallel(n_jobs=ncores)(
-                delayed(sparse_cyclic_pca_masked)(X, s=s, tol=tol, tol_z=tol_z,
+                delayed(sparse_cyclic_pca_masked)(X=X, 
+                                                  s=s, 
+                                                  tol=tol, 
+                                                  tol_z=tol_z,
                                                   max_iter=max_iter, 
                                                   feature_std=feature_std) 
                                                   for _ in range(restarts))
         else:
             runs = Parallel(n_jobs=ncores)(
-                delayed(sparse_cyclic_pca)(X, s=s, tol=tol, max_iter=max_iter, 
+                delayed(sparse_cyclic_pca)(X=X, 
+                                           s=s, 
+                                           tol=tol, 
+                                           max_iter=max_iter, 
                                            feature_std=feature_std) 
                                            for _ in range(restarts))
     
