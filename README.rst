@@ -9,7 +9,7 @@ Cyclic Ordering with Feature Extraction
 
 This package (COFE - *kaa·fee*) implements nonlinear dimensionality reduction with a circular constraint on the (dependent) principal components.
 
-* Preprint: https://doi.org/10.1101/2024.03.13.584582
+* The manuscript describing and applying COFE is now published in PLoS Biology: https://doi.org/10.1371/journal.pbio.3003196
 * Free software: GNU General Public License v3
 
 Features
