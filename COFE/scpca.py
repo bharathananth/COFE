@@ -336,5 +336,5 @@ def _soft_thresh(x, l):
     
     if l < 0:
         raise ValueError("Thresholding quantity must be non-negative.")
-    x_tilde = np.fabs(x)
+    x_tilde = np.abs(x)
     return np.sign(x) * np.maximum(x_tilde - l, 0)

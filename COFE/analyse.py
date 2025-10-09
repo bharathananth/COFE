@@ -204,19 +204,63 @@ def cross_validate(X_train, s_choices, features, feature_std=None, K=5,
         cv_indices = _shuffled_checkerboard(X_train.shape, K, repeats)
         
         # Cross-validation
-        cv_stats = [_calculate_cv(X=X_train, 
+        if ncores is None:
+            runs = [_calculate_cv(X=X_train, 
                                   s=lamb, 
                                   feature_std=feature_std, 
-                                  K=K, 
-                                  repeats=repeats, 
-                                  restarts=restarts, 
                                   tol=tol, 
                                   tol_z=tol_z, 
                                   max_iter=max_iter, 
-                                  cv_indices=cv_indices, 
-                                  ncores=ncores) 
-                                for lamb in s_choices]
-        best_s = s_choices[np.argmin([cv_m for (cv_m, _, _) in cv_stats])]
+                                  cv_ind=cv_ind)
+                                        for lamb in s_choices
+                                        for cv_ind in cv_indices 
+                                        for _ in range(restarts)]
+        else:
+            runs = Parallel(n_jobs=ncores, backend="loky", 
+                            backend_kwargs=dict(inner_max_num_threads=1))(
+                delayed(_calculate_cv)(
+                    X=X_train, 
+                    s=lamb, 
+                    feature_std=feature_std, 
+                    tol=tol, 
+                    tol_z=tol_z, 
+                    max_iter=max_iter, 
+                    cv_ind=cv_ind
+                    ) 
+                    for lamb in s_choices 
+                    for cv_ind in cv_indices 
+                    for _ in range(restarts))
+
+        rss = np.array([r['rss'] for r in runs]).reshape(len(runs)//restarts, 
+                                                            restarts)
+        
+        ind  = np.arange(len(runs)//restarts)*restarts + np.argmin(rss, axis=1)
+
+        best_runs = [runs[i] for i in ind]
+        
+        rss_cv = [r['cv_err'] for r in best_runs]
+
+        rss_cv = np.ma.array(rss_cv, 
+                            mask = np.isnan(rss_cv)).reshape((len(rss_cv)//(repeats*K), repeats, K))
+
+        count_nan = np.sum(np.isnan(rss_cv), axis=(1,2))
+
+        if any(count_nan > len(cv_indices)/4):
+            warn("Too many runs did not converge for s={}. CV results might be "
+        "unreliable. Try increasing max_iter or reducing the tolerances."
+        .format(s_choices[count_nan > len(cv_indices)/4]))
+
+        mask_size = np.array([m.shape[0] for m in cv_indices]).reshape(repeats, K)
+        
+        mask_size = np.ma.array(np.repeat(mask_size[None, :, :], 
+                                    s_choices.shape[0], axis=0), 
+                                mask = np.isnan(rss_cv))
+                        
+        mean_rss = rss_cv.sum(axis=2)/mask_size.sum(axis=2)
+
+        cv_stats = list(zip(mean_rss.mean(axis=1), mean_rss.std(axis=1)))
+        
+        best_s = s_choices[np.argmin(mean_rss.mean(axis=1))]
 
     best_fit = _multi_start(X=X_train, 
                             s=best_s, 
@@ -375,37 +419,19 @@ def _fischer_circ_corr(phi_1, phi_2):
     rho = num/den
     return(rho)
 
-def _calculate_cv(X, s, feature_std, K, repeats, restarts, tol, tol_z, 
-                  max_iter, cv_indices, ncores):
-    rss_cv = list()
-    mask_size = list()
-    count_nan = 0
-    for cv_ind in cv_indices:
-        mask = np.zeros(X.size, dtype=bool)
-        mask[cv_ind] = True
-        if np.any(np.reshape(mask, X.shape).sum(axis=0) == X.shape[0]):
-            print("all masked column")
-        X_ = np.ma.array(X, copy=True, mask=np.reshape(mask, X.shape))
-        decomp = _multi_start(X=X_, 
-                              s=s, 
-                              feature_std=feature_std, 
-                              restarts=restarts, 
-                              tol=tol, 
-                              tol_z=tol_z,
-                              max_iter=max_iter, 
-                              ncores=ncores)
-        rss_cv.append(decomp['cv_err']) 
-        count_nan = count_nan + np.isnan(decomp['cv_err'])
-        mask_size.append(np.sum(mask))
-    if count_nan > len(cv_indices)/4:
-        warn("Too many runs did not converge for s={}. CV results might be "
-        "unreliable. Try increasing max_iter or reducing the tolerances."
-        .format(s))
-    rss_cv = np.ma.array(rss_cv, mask = np.isnan(rss_cv)).reshape((repeats, K))
-    mask_size = np.ma.array(mask_size, 
-                            mask = np.isnan(rss_cv)).reshape((repeats, K))
-    mean_rss = rss_cv.sum(axis=1)/mask_size.sum(axis=1)
-    return(mean_rss.mean(), mean_rss.std(), rss_cv)
+def _calculate_cv(X, s, feature_std, tol, tol_z, max_iter, cv_ind):
+    mask = np.zeros(X.size, dtype=bool)
+    mask[cv_ind] = True
+    if np.any(np.reshape(mask, X.shape).sum(axis=0) == X.shape[0]):
+        print("all masked column")
+    X_ = np.ma.array(X, copy=True, mask=np.reshape(mask, X.shape))
+    decomp = sparse_cyclic_pca_masked(X=X_, 
+                                      s=s, 
+                                      tol=tol, 
+                                      tol_z=tol_z, 
+                                      max_iter=max_iter, 
+                                      feature_std=feature_std)
+    return(decomp)
 
 def _multi_start(X, s, feature_std, restarts, tol, tol_z, max_iter, ncores):
     if ncores is None:
