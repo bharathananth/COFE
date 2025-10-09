@@ -9,22 +9,17 @@ from warnings import warn
 from scipy.interpolate import interp1d
 from joblib import delayed, Parallel
 from COFE.scpca import sparse_cyclic_pca_masked, sparse_cyclic_pca
+import anndata as ad
 
-def preprocess_data(X_train, X_test, features, feature_dim='row', 
-                 mean_threshold=None, scaling_threshold=None, 
+def preprocess_data(adata, mean_threshold=None, scaling_threshold=None, 
                  impute=None, scale=True):
     """Function to preprocess data prior to analysis including 
     centering, scaling and imputing.
 
     Parameters
     ----------
-    X : ndarray
+    adata : anndata object
         matrix of features across samples.
-    features : str
-        names of the features
-    feature_dim : str, optional
-        whether the features are the rows ('row') or columns ('col') 
-        of X, by default 'row'
     mean_threshold : float, optional
         minimum mean level of features that are retained for analysis, 
         by default None
@@ -48,92 +43,54 @@ def preprocess_data(X_train, X_test, features, feature_dim='row',
     ValueError
         if scaling_threshold is not int or float
     """    
-    X_train_ = X_train.copy()
-    X_test_ = X_test.copy() if X_test is not None else None
-    features_ = features.copy()
-
-    if feature_dim == 'row':
-        axis = 1
-        if X_test_ is not None and X_train_.shape[0]!=X_test_.shape[0]:
-            raise ValueError("Different number of features between "
-                             "train and test data")
-    elif feature_dim == 'col':
-        axis = 0
-        if X_test_ is not None and X_train_.shape[1]!=X_test_.shape[1]:
-            raise ValueError("Different number of features between "
-                             "train and test data")
-    else:
-        raise ValueError("Invalid feature dimension.")
+    
+    adata = adata[np.argsort(~adata.obs["train"]),:] 
+    adata.raw = adata
+    X_train_ = adata.X[adata.obs["train"], :].copy()
+    X_test_ = adata.X[~adata.obs["train"], :].copy() if any(adata.obs["train"]) else None
 
     # Imputing extreme values
     if impute is not None:
         if isinstance(impute, float) and impute < 100.0 and impute > 0.0:
-            upper_bound = np.percentile(X_train_, 100-impute/2, axis=axis, 
+            upper_bound = np.percentile(X_train_, 100-impute/2, axis=0, 
                                         keepdims=True)
-            lower_bound = np.percentile(X_train_, impute/2, axis=axis, 
+            lower_bound = np.percentile(X_train_, impute/2, axis=0, 
                                         keepdims=True)
             X_train_ = np.maximum(np.minimum(X_train_, upper_bound), 
                                   lower_bound)
+            if X_test_ is not None:
+                X_test_ = np.maximum(np.minimum(X_test_, upper_bound), 
+                                  lower_bound)
+                adata.X = np.vstack((X_train_, X_test_))
+            else:
+                adata.X = X_train_
+    
+    adata.var["mean"] = X_train_.mean(axis=0)
+    adata.var["std"] = X_train_.std(axis=0)
 
     if mean_threshold is not None:
         if isinstance(mean_threshold, (int, float)):
-            if axis == 1:
-                keep = X_train_.mean(axis=1)>mean_threshold
-                features_ =  features_[keep]
-                X_train_ = X_train_[keep, :]
-                if X_test_ is not None:
-                    X_test_ = X_test_[keep, :]
-            else:
-                keep = X_train_.mean(axis=0)>mean_threshold
-                features_ =  features_[keep]
-                X_train_ = X_train_[:, keep]
-                if X_test_ is not None:
-                    X_test_ = X_test_[:, keep]
+            adata = adata[:, adata.var["mean"]>=mean_threshold].copy()
         else:
             raise ValueError("mean_threshold must be a float")
 
     if scaling_threshold is not None:
         if isinstance(mean_threshold, (int, float)):
-            if axis == 1:
-                keep = X_train_.std(axis=1)>1/scaling_threshold 
-                features_ =  features_[keep]
-                X_train_ = X_train_[keep, :]
-                if X_test_ is not None:
-                    X_test_ = X_test_[keep, :]
-            else:
-                keep = X_train_.std(axis=0)>1/scaling_threshold
-                features_ =  features_[keep]
-                X_train_ = X_train_[:, keep]
-                if X_test_ is not None:
-                    X_test_ = X_test_[:, keep]
+            adata = adata[:, adata.var["std"]>=1/scaling_threshold].copy()
         else:
             raise ValueError("scaling_threshold must be a float")
 
     # Always center data to have zero mean
-    mean_ = np.mean(X_train_, axis=axis, keepdims=True)
-    X_train_ = X_train_ - mean_
-    if X_test_ is not None:
-        X_test_ = X_test_ - mean_
+    adata.X = adata.X - adata.var["mean"].to_numpy()[None, :]
 
     # Standardise every gene series to have variance of 1
-    std_ = np.std(X_train_, axis=axis, keepdims=True)
     if scale:
-        X_train_ = X_train_ / std_
-        if X_test is not None:
-            X_test_ = X_test_ / std_
-
-    if axis == 1:
-        X_train_ = X_train_.T
-        if X_test_ is not None:
-            X_test_ = X_test_.T
-    else:
-        std_ = std_.T
+        adata.X = adata.X/adata.var["std"].to_numpy()[None, :]
     
-    return (X_train_, X_test_, features_, std_)
+    return adata
 
-def cross_validate(X_train, s_choices, features, feature_std=None, K=5, 
-                   repeats=3, restarts=5, tol=1e-3, tol_z=1e-6, max_iter=400, 
-                   ncores=None):
+def cross_validate(adata, s_choices, scale_by_features=False, K=5, repeats=3, 
+                    restarts=5, tol=1e-3, tol_z=1e-6, max_iter=400, ncores=None):
     """Calculate the optimal choice of sparsity threshold 's' and the 
     cyclic ordering for the best 's'
     
@@ -201,13 +158,14 @@ def cross_validate(X_train, s_choices, features, feature_std=None, K=5,
         best_s = None
         cv_stats = None
     else:
+        X_train = adata.X[adata.obs["train"], :].copy()
         cv_indices = _shuffled_checkerboard(X_train.shape, K, repeats)
         
         # Cross-validation
         if ncores is None:
-            runs = [_calculate_cv(X=X_train, 
+            runs = [_calculate_cv(adata=adata, 
                                   s=lamb, 
-                                  feature_std=feature_std, 
+                                  scale_by_features=scale_by_features, 
                                   tol=tol, 
                                   tol_z=tol_z, 
                                   max_iter=max_iter, 
@@ -219,9 +177,9 @@ def cross_validate(X_train, s_choices, features, feature_std=None, K=5,
             runs = Parallel(n_jobs=ncores, backend="loky", 
                             backend_kwargs=dict(inner_max_num_threads=1))(
                 delayed(_calculate_cv)(
-                    X=X_train, 
+                    adata=adata, 
                     s=lamb, 
-                    feature_std=feature_std, 
+                    scale_by_features=scale_by_features, 
                     tol=tol, 
                     tol_z=tol_z, 
                     max_iter=max_iter, 

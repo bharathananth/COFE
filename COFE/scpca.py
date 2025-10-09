@@ -7,7 +7,7 @@ import numpy as np
 from scipy.linalg import norm
 from warnings import warn
 
-def sparse_cyclic_pca(X, s=None, tol=1e-6, max_iter=300, feature_std=None):
+def sparse_cyclic_pca(adata, s=None, tol=1e-6, max_iter=300, scale_by_features=False):
     """Generates a pair of loading vectors and cyclic principal 
     components that satisfy specific sparsity constraint.
 
@@ -53,33 +53,29 @@ def sparse_cyclic_pca(X, s=None, tol=1e-6, max_iter=300, feature_std=None):
         when feature weights for initialization are not the same size as
          feature
     """        
-    N = X.shape[0]
+    N = adata.n_obs
+    p = adata.n_var
 
     sparsify = False if s is None else True
 
     rng = np.random.default_rng()    
-    v_1 = rng.laplace(size=(X.shape[1],1))
-    if feature_std is not None:
-        if feature_std.shape[0] != X.shape[1]:
-            raise ValueError("Feature standard deviations not the same " 
-            "size as feature.")
-        v_1 = v_1 * feature_std
+    v_1 = rng.laplace(size=(p, 1))
+    if scale_by_features:
+        v_1 = v_1 * adata.var["std"].to_numpy()
     Sv_1 = _opt_thresh(v_1, s) if sparsify else v_1.copy()
     v_1 = Sv_1/norm(Sv_1, ord=2)
     v_2 = rng.laplace(size = (X.shape[1],1))
-    if feature_std is not None:
-        if feature_std.shape[0] != X.shape[1]:
-            raise ValueError("Feature standard deviations not the same "
-            "size as feature.")
-        v_2 = v_2 * feature_std
+    if scale_by_features:
+        v_2 = v_2 * adata.var["std"].to_numpy()
     Sv_2 = _opt_thresh(v_2, s) if sparsify else v_2.copy()
     v_2 = Sv_2/norm(Sv_2, ord=2)
 
-    phi = rng.uniform(low=0.0, high=2*np.pi, size=(X.shape[0],1))
+    phi = rng.uniform(low=0.0, high=2*np.pi, size=(N, 1))
     u_1 = np.cos(phi)
     u_2 = np.sin(phi)
 
     d = (u_1.T @ X @ v_1 + u_2.T @ X @ v_2).item()/N
+    X = adata.X
     X_T = X.T
     
     count = 0
@@ -115,15 +111,17 @@ def sparse_cyclic_pca(X, s=None, tol=1e-6, max_iter=300, feature_std=None):
         
         count += 1
 
-    return {'V': np.hstack((v_1, v_2)), 
-            'U': np.hstack((u_1, u_2)), 
-            'd': d, 
+    adata.obsm["X_scpca"] = np.hstack((u_1, u_2))
+    adata.varm["PCs"] = np.hstack((v_1, v_2))
+    adata.uns["scpca"] = {'d': d, 
             'converged': (count<max_iter), 
             'rss': rss,
             'score': score}
 
-def sparse_cyclic_pca_masked(X, s=None, tol=1e-3, tol_z=1e-6, max_iter=300, 
-                             feature_std=None):
+    return adata
+
+def sparse_cyclic_pca_masked(adata, s=None, tol=1e-3, tol_z=1e-6, max_iter=300, 
+                             scale_by_features=False):
     """Generates a pair of loading vectors and cyclic principal 
     components that satisfy specific sparsity constraint for data with 
     missing values. The code then imputes these missing values.
