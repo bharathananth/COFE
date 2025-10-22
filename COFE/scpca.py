@@ -54,7 +54,7 @@ def sparse_cyclic_pca(adata, s=None, tol=1e-6, max_iter=300, scale_by_features=F
          feature
     """        
     N = adata.n_obs
-    p = adata.n_var
+    p = adata.n_vars
 
     sparsify = False if s is None else True
 
@@ -64,7 +64,7 @@ def sparse_cyclic_pca(adata, s=None, tol=1e-6, max_iter=300, scale_by_features=F
         v_1 = v_1 * adata.var["std"].to_numpy()
     Sv_1 = _opt_thresh(v_1, s) if sparsify else v_1.copy()
     v_1 = Sv_1/norm(Sv_1, ord=2)
-    v_2 = rng.laplace(size = (X.shape[1],1))
+    v_2 = rng.laplace(size = (p, 1))
     if scale_by_features:
         v_2 = v_2 * adata.var["std"].to_numpy()
     Sv_2 = _opt_thresh(v_2, s) if sparsify else v_2.copy()
@@ -74,9 +74,9 @@ def sparse_cyclic_pca(adata, s=None, tol=1e-6, max_iter=300, scale_by_features=F
     u_1 = np.cos(phi)
     u_2 = np.sin(phi)
 
-    d = (u_1.T @ X @ v_1 + u_2.T @ X @ v_2).item()/N
     X = adata.X
     X_T = X.T
+    d = (u_1.T @ X @ v_1 + u_2.T @ X @ v_2).item()/N
     
     count = 0
     score = (2 * d * u_1.T @ X @ v_1 + 2 * d * u_2.T @ X @ v_2 \
@@ -120,7 +120,7 @@ def sparse_cyclic_pca(adata, s=None, tol=1e-6, max_iter=300, scale_by_features=F
 
     return adata
 
-def sparse_cyclic_pca_masked(adata, s=None, tol=1e-3, tol_z=1e-6, max_iter=300, 
+def sparse_cyclic_pca_masked(adata, mask, s=None, tol=1e-3, tol_z=1e-6, max_iter=300, 
                              scale_by_features=False):
     """Generates a pair of loading vectors and cyclic principal 
     components that satisfy specific sparsity constraint for data with 
@@ -175,36 +175,30 @@ def sparse_cyclic_pca_masked(adata, s=None, tol=1e-3, tol_z=1e-6, max_iter=300,
         when feature weights for initialization are not the same size as
          feature
     """
-    if not isinstance(X, np.ma.MaskedArray):
-        raise TypeError("The input must be a masked numpy array")
 
-    N = X.shape[0]
+    N = adata.n_obs
+    p = adata.n_vars
 
     sparsify = False if s is None else True
 
-    Z = np.where(X.mask, X.mean(axis=0), X.data) 
+    Z = np.where(mask, adata.X.mean(axis=0), adata.X.copy()) 
     
     rng = np.random.default_rng()
-    v_1 = rng.laplace(size=(Z.shape[1],1))
-    if feature_std is not None:
-        if feature_std.shape[0] != Z.shape[1]:
-            raise ValueError("Feature standard deviations not the same size as"
-                             " feature.")
-        v_1 = v_1 * feature_std
+    v_1 = rng.laplace(size=(p, 1))
+    if scale_by_features:
+        v_1 = v_1 * adata.var["std"].to_numpy()
     Sv_1 = _opt_thresh(v_1, s) if sparsify else v_1.copy()
-    v_1 = Sv_1/norm(Sv_1, ord=2, check_finite=False)
-    v_2 = rng.laplace(size=(Z.shape[1],1))
-    if feature_std is not None:
-        if feature_std.shape[0] != Z.shape[1]:
-            raise ValueError("Feature standard deviations not the same size as"
-                             " feature.")
-        v_2 = v_2 * feature_std
+    v_1 = Sv_1/norm(Sv_1, ord=2)
+    v_2 = rng.laplace(size = (p, 1))
+    if scale_by_features:
+        v_2 = v_2 * adata.var["std"].to_numpy()
     Sv_2 = _opt_thresh(v_2, s) if sparsify else v_2.copy()
-    v_2 = Sv_2/norm(Sv_2, ord=2, check_finite=False)
+    v_2 = Sv_2/norm(Sv_2, ord=2)
 
-    phi = rng.uniform(low=0.0, high=2*np.pi, size=(Z.shape[0],1))
+    phi = rng.uniform(low=0.0, high=2*np.pi, size=(N, 1))
     u_1 = np.cos(phi)
     u_2 = np.sin(phi)
+
 
     d = (u_1.T @ Z @ v_1 + u_2.T @ Z @ v_2).item()/N
 
@@ -240,26 +234,27 @@ def sparse_cyclic_pca_masked(adata, s=None, tol=1e-3, tol_z=1e-6, max_iter=300,
 
         if err <= tol:
             Z_imputed = d * (u_1 @ v_1.T + u_2 @ v_2.T)
-            Z[X.mask] = Z_imputed[X.mask]
+            Z[mask] = Z_imputed[mask]
             rss_new = norm(Z - Z_imputed, ord='fro') ** 2
             err_z = np.abs(rss_new - rss)/rss
             rss = rss_new
             if err_z <= tol_z:
-                E = (X.data - Z)
+                E = (adata.X - Z)
                 cv_err = norm(E, ord='fro') ** 2
                 break
         count += 1
     
     if count == max_iter:
         cv_err = np.nan
-
-    return {'V': np.hstack((v_1, v_2)), 
-            'U': np.hstack((u_1, u_2)), 
-            'd': d, 
-            'converged': count < max_iter, 
-            'rss': rss, 
-            'cv_err': cv_err,
-            'X_imputed': Z_imputed}
+    
+    adata.obsm["X_scpca"] = np.hstack((u_1, u_2))
+    adata.varm["PCs"] = np.hstack((v_1, v_2))
+    adata.uns["scpca"] = {'d': d, 
+            'converged': (count<max_iter), 
+            'rss': rss,
+            'cv_err': cv_err}
+    
+    return adata
 
 def _opt_thresh(x, s):
     """Finds the optimal soft-thresholding to satisfy both l1 and l2 contraints

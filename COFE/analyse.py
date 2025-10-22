@@ -18,7 +18,7 @@ def preprocess_data(adata, mean_threshold=None, scaling_threshold=None,
 
     Parameters
     ----------
-    adata : anndata object
+    adata : AnnData object
         matrix of features across samples.
     mean_threshold : float, optional
         minimum mean level of features that are retained for analysis, 
@@ -29,11 +29,13 @@ def preprocess_data(adata, mean_threshold=None, scaling_threshold=None,
     impute : float, optional
         features outside central percentile are truncated to the chosen 
         level , by default None
+    scale : boolean
+        should the features be scaled in addition to centering, default True
 
     Returns
     -------
-    (ndarray, ndarray, array, array)
-        Matrix of preprocessed training and test data, names of retained
+    AnnData object
+        with preprocessed training and test data, names of retained
           features, standard deviation of retained features in raw data
 
     Raises
@@ -96,16 +98,14 @@ def cross_validate(adata, s_choices, scale_by_features=False, K=5, repeats=3,
     
     Parameters
     ----------
-    X_train : ndarray
-        preprocessed training data matrix 
+    adata : AnnData object
+        with preprocessed training data matrix 
     s_choices : array or list or None
         different values of l1 sparsity threshold to compare. If None 
         then directly computes non-sparse solution.
-    features: array
-        names of the features
-    feature_std : array, optional
-        weights for the different features that determine the st. dev. 
-        of the random initial conditions each restart, by default None
+    scale_by_features: boolean
+        whether to weigh features by their the st. dev. for the random initial 
+        conditions each restart, by default False
     K : int, optional
         number of folds used for cross-validation
     repeats : int, optional
@@ -123,11 +123,6 @@ def cross_validate(adata, s_choices, scale_by_features=False, K=5, repeats=3,
     max_iter : int, optional
         maximum number of iterations of the alternating maximization, 
         by default 400
-    true_times : array, optional
-        known reference times for the samples to compare the 
-        reconstruction against, by default None
-    period : double, optional
-        period of the underlying rhythm, by default 24.0
     ncores : int, optional
         number of cores to use for parallel computation of the 
         multistarts, by default None, which computes serially. See 
@@ -158,18 +153,19 @@ def cross_validate(adata, s_choices, scale_by_features=False, K=5, repeats=3,
         best_s = None
         cv_stats = None
     else:
-        X_train = adata.X[adata.obs["train"], :].copy()
-        cv_indices = _shuffled_checkerboard(X_train.shape, K, repeats)
+        adata_train = adata[adata.obs["train"], :].copy()
+        cv_indices = _shuffled_checkerboard(adata_train.shape, K, repeats)
         
         # Cross-validation
         if ncores is None:
-            runs = [_calculate_cv(adata=adata, 
+            runs = [_calculate_cv(adata=adata_train, 
                                   s=lamb, 
-                                  scale_by_features=scale_by_features, 
                                   tol=tol, 
                                   tol_z=tol_z, 
                                   max_iter=max_iter, 
-                                  cv_ind=cv_ind)
+                                  cv_ind=cv_ind,
+                                  scale_by_features=scale_by_features
+                                )
                                         for lamb in s_choices
                                         for cv_ind in cv_indices 
                                         for _ in range(restarts)]
@@ -179,24 +175,24 @@ def cross_validate(adata, s_choices, scale_by_features=False, K=5, repeats=3,
                 delayed(_calculate_cv)(
                     adata=adata, 
                     s=lamb, 
-                    scale_by_features=scale_by_features, 
                     tol=tol, 
                     tol_z=tol_z, 
                     max_iter=max_iter, 
-                    cv_ind=cv_ind
+                    cv_ind=cv_ind,
+                    scale_by_features=scale_by_features
                     ) 
                     for lamb in s_choices 
                     for cv_ind in cv_indices 
                     for _ in range(restarts))
 
-        rss = np.array([r['rss'] for r in runs]).reshape(len(runs)//restarts, 
+        rss = np.array([r.uns["scpca"]["rss"] for r in runs]).reshape(len(runs)//restarts, 
                                                             restarts)
         
         ind  = np.arange(len(runs)//restarts)*restarts + np.argmin(rss, axis=1)
 
         best_runs = [runs[i] for i in ind]
         
-        rss_cv = [r['cv_err'] for r in best_runs]
+        rss_cv = [r.uns["scpca"]['cv_err'] for r in best_runs]
 
         rss_cv = np.ma.array(rss_cv, 
                             mask = np.isnan(rss_cv)).reshape((len(rss_cv)//(repeats*K), repeats, K))
@@ -220,24 +216,28 @@ def cross_validate(adata, s_choices, scale_by_features=False, K=5, repeats=3,
         
         best_s = s_choices[np.argmin(mean_rss.mean(axis=1))]
 
-    best_fit = _multi_start(X=X_train, 
-                            s=best_s, 
-                            feature_std=feature_std, 
-                            restarts=restarts, 
-                            tol=tol, 
-                            tol_z=tol_z, 
-                            max_iter=max_iter, 
-                            ncores=ncores)
-
-    return {'best_s': best_s, 
+        best_fit = _multi_start(adata=adata_train, 
+                                s=best_s, 
+                                restarts=restarts,
+                                tol=tol, 
+                                tol_z=tol_z, 
+                                max_iter=max_iter, 
+                                ncores=ncores,
+                                scale_by_features=scale_by_features)
+        best_fit.uns["scpca"].update({'best_s': best_s, 
             's_choices': s_choices, 
-            'runs': cv_stats, 
-            'CPCs': best_fit['U'], 
-            'SLs': best_fit['V'], 
-            'd': best_fit['d'],
-            'rss': best_fit['rss'],
-            'features': features,
-            }
+            'runs': [list(stats) for stats in cv_stats]})
+        
+        X_test = adata[~adata.obs["train"], :].X
+        PCs_test = X_test @ best_fit.varm["PCs"]
+        y_circ = np.sqrt((PCs_test ** 2).sum(axis=1, keepdims=True))
+        PCs_test = PCs_test/y_circ
+        
+        adata.varm["PCs"] = best_fit.varm["PCs"]
+        adata.obsm["X_scpca"] = np.vstack((best_fit.obsm["X_scpca"], PCs_test))
+        adata.uns["scpca"] = best_fit.uns["scpca"]
+
+    return adata
 
 def predict_time(X_test, cv_results, true_times=None, period=24.0):
     """Predict the phase for test data using the training results from the 
@@ -257,7 +257,7 @@ def predict_time(X_test, cv_results, true_times=None, period=24.0):
 
     Returns
     -------
-    Cross-validation results augmented with following information
+    AnnData object with the cross-validation results augmented with following information
     {
         'phase': ndarray
             the estimated phases of the samples modulo 1
@@ -278,71 +278,66 @@ def predict_time(X_test, cv_results, true_times=None, period=24.0):
             'FCC': circ_corr,
             'true_times': true_times} | cv_results
 
-def calculate_mape(Y, true_times=None, period=24.0):
+def calculate_mape(adata, train=False):
     """Calculate sample phase and median absolute position error, if 
     true sample time provided.
 
     Parameters
     ----------
-    Y : ndarray
-        2D array consisting of the two sparse cyclic principal 
-        components to estimate sample times or, 1D array consisting of 
-        estimated sample times (normalized by period)
-    true_times : ndarray, optional
-        1D array of true/reference sample times for each sample in data, 
-        by default None
-    period : double, optional
-        period of the underlying rhythm, by default 24.0
+    adata : AnnData object
+        with the results of COFE (SCPCA) run.
+    train : boolean, optional
+        whether the MAPE and angles must be computed for the train or test data, 
+        default False
 
     Returns
     -------
-    (ndarray, float)
+    AnnData object
         tuple containing the estimated phases of the samples and the 
         median absolute error if true_times and period provided
     """    
-    Y = Y.squeeze()
-    if Y.ndim == 2:
+    if "X_scpca" in adata.obsm.keys():
         # Scaled angular positions
+        Y = adata.obsm["X_scpca"]
+        ind = adata.obs["train"] if train else ~adata.obs["train"]
         angles = _scaled_angles(Y[:, 0], Y[:, 1])
-    elif Y.ndim == 1:
-        angles = Y % 1.0
     
-    mape_value = np.nan
-    corr_coef = np.nan
+        mape_value = np.nan
 
-    if true_times is not None:
-        # Scaled time values
-        scaled_time = true_times/period % 1
+        if "time" in adata.obs_keys():
+            # Scaled time values
+            scaled_time = adata.obs["time"]/adata.uns["period"] % 1
 
-        diff_offsets_cw = [(np.median(np.abs(_delta(scaled_time 
-                                                    - angles, 
-                                                    d))), d) 
-                                    for d in np.arange(-0.5, 0.5, 0.005)]
+            diff_offsets_cw = [(np.median(np.abs(_delta(scaled_time[ind] 
+                                                        - angles[ind], 
+                                                        d))), d) 
+                                        for d in np.arange(-0.5, 0.5, 0.005)]
 
-        diff_offsets_acw = [(np.median(np.abs(_delta(scaled_time 
-                                                    + angles, 
-                                                    d))), d) 
-                                    for d in np.arange(-0.5, 0.5, 0.005)]
-        
-        best_offset_ind_cw = np.argmin(list(zip(*diff_offsets_cw))[0]) 
-        
-        best_offset_ind_acw = np.argmin(list(zip(*diff_offsets_acw))[0])
+            diff_offsets_acw = [(np.median(np.abs(_delta(scaled_time[ind] 
+                                                        + angles[ind], 
+                                                        d))), d) 
+                                        for d in np.arange(-0.5, 0.5, 0.005)]
+            
+            best_offset_ind_cw = np.argmin(list(zip(*diff_offsets_cw))[0]) 
+            
+            best_offset_ind_acw = np.argmin(list(zip(*diff_offsets_acw))[0])
 
-        if diff_offsets_cw[best_offset_ind_cw][0]< \
-                            diff_offsets_acw[best_offset_ind_acw][0]:
-            adjusted_opt_angles = (angles +
-                                diff_offsets_cw[best_offset_ind_cw][1]) % 1
-            mape_value = diff_offsets_cw[best_offset_ind_cw][0]
-        else: 
-            adjusted_opt_angles = (-angles +
-                            diff_offsets_acw[best_offset_ind_acw][1]) % 1
-            mape_value = diff_offsets_acw[best_offset_ind_acw][0]
+            if diff_offsets_cw[best_offset_ind_cw][0]< \
+                                diff_offsets_acw[best_offset_ind_acw][0]:
+                adjusted_opt_angles = (angles +
+                                    diff_offsets_cw[best_offset_ind_cw][1]) % 1
+                mape_value = diff_offsets_cw[best_offset_ind_cw][0]
+            else: 
+                adjusted_opt_angles = (-angles +
+                                diff_offsets_acw[best_offset_ind_acw][1]) % 1
+                mape_value = diff_offsets_acw[best_offset_ind_acw][0]
+        else:
+            adjusted_opt_angles = angles
+            
+        adata.uns["scpca"].update({"MAPE": mape_value})
+        adata.obs["phase"] = adjusted_opt_angles * adata.uns["period"]
 
-        corr_coef = _fischer_circ_corr(angles, scaled_time)
-    else:
-        adjusted_opt_angles = angles
-
-    return (adjusted_opt_angles, mape_value, corr_coef)
+    return adata
 
 # INTERNAL FUNCTIONS
 
@@ -377,57 +372,39 @@ def _fischer_circ_corr(phi_1, phi_2):
     rho = num/den
     return(rho)
 
-def _calculate_cv(X, s, feature_std, tol, tol_z, max_iter, cv_ind):
-    mask = np.zeros(X.size, dtype=bool)
+def _calculate_cv(adata, s, tol, tol_z, max_iter, cv_ind, scale_by_features):
+    mask = np.zeros(adata.n_obs*adata.n_vars, dtype=bool)
     mask[cv_ind] = True
-    if np.any(np.reshape(mask, X.shape).sum(axis=0) == X.shape[0]):
+    if np.any(np.reshape(mask, adata.n_obs*adata.n_vars).sum(axis=0) == adata.n_obs):
         print("all masked column")
-    X_ = np.ma.array(X, copy=True, mask=np.reshape(mask, X.shape))
-    decomp = sparse_cyclic_pca_masked(X=X_, 
+    mask=np.reshape(mask, adata.shape)
+    adata = sparse_cyclic_pca_masked(adata=adata, 
+                                      mask=mask,
                                       s=s, 
                                       tol=tol, 
                                       tol_z=tol_z, 
                                       max_iter=max_iter, 
-                                      feature_std=feature_std)
-    return(decomp)
+                                      scale_by_features=scale_by_features)
+    return(adata)
 
-def _multi_start(X, s, feature_std, restarts, tol, tol_z, max_iter, ncores):
+def _multi_start(adata, s, scale_by_features, restarts, tol, tol_z, max_iter, ncores):
     if ncores is None:
-        if isinstance(X, np.ma.MaskedArray):
-            runs = [sparse_cyclic_pca_masked(X=X, 
-                                             s=s, 
-                                             tol=tol, 
-                                             tol_z=tol_z, 
-                                             max_iter=max_iter, 
-                                             feature_std=feature_std) 
-                                             for _ in range(restarts)]
-        else:
-            runs = [sparse_cyclic_pca(X=X, 
-                                      s=s, 
-                                      tol=tol, 
-                                      max_iter=max_iter, 
-                                      feature_std=feature_std) 
-                                      for _ in range(restarts)]
+        runs = [sparse_cyclic_pca(adata=adata, 
+                                s=s, 
+                                tol=tol, 
+                                max_iter=max_iter, 
+                                scale_by_features=scale_by_features) 
+                                for _ in range(restarts)]
     else:
-        if isinstance(X, np.ma.MaskedArray):
-            runs = Parallel(n_jobs=ncores)(
-                delayed(sparse_cyclic_pca_masked)(X=X, 
-                                                  s=s, 
-                                                  tol=tol, 
-                                                  tol_z=tol_z,
-                                                  max_iter=max_iter, 
-                                                  feature_std=feature_std) 
-                                                  for _ in range(restarts))
-        else:
-            runs = Parallel(n_jobs=ncores)(
-                delayed(sparse_cyclic_pca)(X=X, 
-                                           s=s, 
-                                           tol=tol, 
-                                           max_iter=max_iter, 
-                                           feature_std=feature_std) 
-                                           for _ in range(restarts))
+        runs = Parallel(n_jobs=ncores)(
+            delayed(sparse_cyclic_pca)(adata=adata, 
+                                        s=s, 
+                                        tol=tol, 
+                                        max_iter=max_iter, 
+                                        scale_by_features=scale_by_features) 
+                                        for _ in range(restarts))
     
-    ind = np.argmin([r['rss'] for r in runs])
+    ind = np.argmin([r.uns["scpca"]["rss"] for r in runs])
     return runs[ind]
 
 def _scaled_angles(x, y):
