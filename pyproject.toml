@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name="COFE"
-version="1.1.0"
+version="1.2.0"
 requires-python = ">= 3.9"
 dependencies = [
     "biothings_client>=0.2.6",
