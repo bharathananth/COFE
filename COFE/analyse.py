@@ -299,6 +299,8 @@ def calculate_mape(adata, train=False):
     if "X_scpca" in adata.obsm.keys():
         # Scaled angular positions
         Y = adata.obsm["X_scpca"]
+        if all(adata.obs["train"]):
+            train = True
         ind = adata.obs["train"] if train else ~adata.obs["train"]
         angles = _scaled_angles(Y[:, 0], Y[:, 1])
     
