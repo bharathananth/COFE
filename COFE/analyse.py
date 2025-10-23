@@ -3,13 +3,13 @@
 This module contains functions to process data, analyse data using sparse 
 loading vectors, and analyse data using SPCA principal components.
 """
+import anndata as ad
 import numpy as np
 from scipy.linalg import norm
 from warnings import warn
 from scipy.interpolate import interp1d
 from joblib import delayed, Parallel
 from COFE.scpca import sparse_cyclic_pca_masked, sparse_cyclic_pca
-import anndata as ad
 
 def preprocess_data(adata, mean_threshold=None, scaling_threshold=None, 
                  impute=None, scale=True):
