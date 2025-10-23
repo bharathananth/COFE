@@ -321,7 +321,7 @@ def predict_time(X_test, cv_results, true_times=None, period=24.0):
     } | cv_results
 
 
-def calculate_phase(adata, train=False):
+def estimate_phase(adata, train=False):
     """Calculate sample phase and median absolute position error, if
     true sample time provided.
 
