@@ -64,9 +64,7 @@ Installation
 
    .. code-block:: python
    
-      import COFE.analyse
-      import COFE.plot
-      import COFE.scpca
+      import COFE as cf
 
 Getting Started
 ---------------
