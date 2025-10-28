@@ -14,11 +14,7 @@ from COFE.scpca import sparse_cyclic_pca_masked, sparse_cyclic_pca
 
 
 def preprocess_data(
-    adata, 
-    mean_threshold=None, 
-    scaling_threshold=None, 
-    impute=None, 
-    scale=True
+    adata, mean_threshold=None, scaling_threshold=None, impute=None, scale=True
 ):
     """Function to preprocess data prior to analysis including
     centering, scaling and imputing.
@@ -110,6 +106,7 @@ def cross_validate(
     tol_z=1e-6,
     max_iter=400,
     ncores=None,
+    seed=None,
 ):
     """Calculate the optimal choice of sparsity threshold 's' and the
     cyclic ordering for the best 's'
@@ -145,10 +142,12 @@ def cross_validate(
         number of cores to use for parallel computation of the
         multistarts, by default None, which computes serially. See
         joblib.Parallel for convention.
+    seed : integer, optional
+        seed to make the randomized algorithm deterministic, by default None
 
     Returns
     -------
-    AnnData object augmented with results of the cross-validation 
+    AnnData object augmented with results of the cross-validation
     {
         'best_s': float
             best performing lamb
@@ -173,7 +172,14 @@ def cross_validate(
         cv_stats = None
     else:
         adata_train = adata[adata.obs["train"], :].copy()
-        cv_indices = _shuffled_checkerboard(adata_train.shape, K, repeats)
+
+        rng = np.random.default_rng(seed=seed)
+
+        seeder = lambda: rng.integers(0, 2**32 - 1)
+
+        cv_indices = _shuffled_checkerboard(
+            adata_train.shape, K, repeats, seed=seeder()
+        )
 
         # Cross-validation
         if ncores is None:
@@ -186,12 +192,19 @@ def cross_validate(
                     max_iter=max_iter,
                     cv_ind=cv_ind,
                     scale_by_features=scale_by_features,
+                    seed=seeder(),
                 )
                 for lamb in s_choices
                 for cv_ind in cv_indices
                 for _ in range(restarts)
             ]
         else:
+            cv_params = [
+                {"lamb": lamb, "cv_ind": cv_ind, "restart": _, "seed": seeder()}
+                for lamb in s_choices
+                for cv_ind in cv_indices
+                for _ in range(restarts)
+            ]
             runs = Parallel(
                 n_jobs=ncores,
                 backend="loky",
@@ -199,16 +212,15 @@ def cross_validate(
             )(
                 delayed(_calculate_cv)(
                     adata=adata,
-                    s=lamb,
+                    s=cvp["lamb"],
                     tol=tol,
                     tol_z=tol_z,
                     max_iter=max_iter,
-                    cv_ind=cv_ind,
+                    cv_ind=cvp["cv_ind"],
                     scale_by_features=scale_by_features,
+                    seed=cvp["seed"],
                 )
-                for lamb in s_choices
-                for cv_ind in cv_indices
-                for _ in range(restarts)
+                for cvp in cv_params
             )
 
         rss = np.array([r.uns["scpca"]["rss"] for r in runs]).reshape(
@@ -257,6 +269,7 @@ def cross_validate(
             max_iter=max_iter,
             ncores=ncores,
             scale_by_features=scale_by_features,
+            seed=seeder(),
         )
         best_fit.uns["scpca"].update(
             {
@@ -392,9 +405,9 @@ def estimate_phase(adata, train=False):
 # INTERNAL FUNCTIONS
 
 
-def _shuffled_checkerboard(size, K, repeats):
+def _shuffled_checkerboard(size, K, repeats, seed):
     nrow, ncol = size[0], size[1]
-    rng = np.random.default_rng()
+    rng = np.random.default_rng(seed=seed)
     return_list = list()
     for r in range(repeats):
         row_permute = rng.permutation(nrow)
@@ -430,7 +443,7 @@ def _fischer_circ_corr(phi_1, phi_2):
     return rho
 
 
-def _calculate_cv(adata, s, tol, tol_z, max_iter, cv_ind, scale_by_features):
+def _calculate_cv(adata, s, tol, tol_z, max_iter, cv_ind, scale_by_features, seed):
     mask = np.zeros(adata.n_obs * adata.n_vars, dtype=bool)
     mask[cv_ind] = True
     if np.any(np.reshape(mask, adata.n_obs * adata.n_vars).sum(axis=0) == adata.n_obs):
@@ -444,11 +457,17 @@ def _calculate_cv(adata, s, tol, tol_z, max_iter, cv_ind, scale_by_features):
         tol_z=tol_z,
         max_iter=max_iter,
         scale_by_features=scale_by_features,
+        seed=seed,
     )
     return adata
 
 
-def _multi_start(adata, s, scale_by_features, restarts, tol, tol_z, max_iter, ncores):
+def _multi_start(
+    adata, s, scale_by_features, restarts, tol, tol_z, max_iter, ncores, seed
+):
+    rng = np.random.default_rng(seed=seed)
+
+    seeder = lambda: rng.integers(0, 2**32 - 1)
     if ncores is None:
         runs = [
             sparse_cyclic_pca(
@@ -457,10 +476,12 @@ def _multi_start(adata, s, scale_by_features, restarts, tol, tol_z, max_iter, nc
                 tol=tol,
                 max_iter=max_iter,
                 scale_by_features=scale_by_features,
+                seed=seeder(),
             )
             for _ in range(restarts)
         ]
     else:
+        local_seeds = [seeder() for _ in range(restarts)]
         runs = Parallel(n_jobs=ncores)(
             delayed(sparse_cyclic_pca)(
                 adata=adata,
@@ -468,8 +489,9 @@ def _multi_start(adata, s, scale_by_features, restarts, tol, tol_z, max_iter, nc
                 tol=tol,
                 max_iter=max_iter,
                 scale_by_features=scale_by_features,
+                seed=local_seeds[i]
             )
-            for _ in range(restarts)
+            for i in range(restarts)
         )
 
     ind = np.argmin([r.uns["scpca"]["rss"] for r in runs])

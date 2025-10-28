@@ -9,14 +9,16 @@ from scipy.linalg import norm
 from warnings import warn
 
 
-def sparse_cyclic_pca(adata, s=None, tol=1e-6, max_iter=300, scale_by_features=False):
+def sparse_cyclic_pca(
+    adata, s=None, tol=1e-6, max_iter=300, scale_by_features=False, seed=None
+):
     """Generates a pair of loading vectors and cyclic principal
     components that satisfy specific sparsity constraint.
 
     Parameters
     ----------
     adata : AnnData object
-        data matrix 
+        data matrix
     s : float, optional
         l1 norm constraint that determines level of sparsity, by default
         None, i.e., no sparsity
@@ -25,13 +27,15 @@ def sparse_cyclic_pca(adata, s=None, tol=1e-6, max_iter=300, scale_by_features=F
     max_iter : int, optional
         maximum number of iterations to look for convergence, by default 300
     scale_by_features : boolean, optional
-        whether to weigh features according to their st. dev. for their random 
+        whether to weigh features according to their st. dev. for their random
         initial conditions, by default False
+    seed : integer, optional
+        seed to make the randomized algorithm deterministic, by default None
 
     Returns
     -------
-    AnnData object augmented with sparse right eigenvectors, circular left 
-    eigenvectors, scale factor for the outer product approximation along with 
+    AnnData object augmented with sparse right eigenvectors, circular left
+    eigenvectors, scale factor for the outer product approximation along with
     finall rss after convergence and final score
 
     Raises
@@ -45,7 +49,7 @@ def sparse_cyclic_pca(adata, s=None, tol=1e-6, max_iter=300, scale_by_features=F
 
     sparsify = False if s is None else True
 
-    rng = np.random.default_rng()
+    rng = np.random.default_rng(seed=seed)
     v_1 = rng.laplace(size=(p, 1))
     if scale_by_features:
         v_1 = v_1 * adata.var["std"].to_numpy()
@@ -111,7 +115,14 @@ def sparse_cyclic_pca(adata, s=None, tol=1e-6, max_iter=300, scale_by_features=F
 
 
 def sparse_cyclic_pca_masked(
-    adata, mask, s=None, tol=1e-3, tol_z=1e-6, max_iter=300, scale_by_features=False
+    adata,
+    mask,
+    s=None,
+    tol=1e-3,
+    tol_z=1e-6,
+    max_iter=300,
+    scale_by_features=False,
+    seed=None,
 ):
     """Generates a pair of loading vectors and cyclic principal
     components that satisfy specific sparsity constraint for data with
@@ -134,12 +145,14 @@ def sparse_cyclic_pca_masked(
         maximum number of iterations to look for convergence, by default
         300
     scale_by_features : boolean, optional
-        whether to weigh features according to their st. dev. for their random 
+        whether to weigh features according to their st. dev. for their random
         initial conditions, by default False
+    seed : integer, optional
+        seed to make the randomized algorithm deterministic, by default None
 
     Returns
     -------
-    AnnData object augmented with 
+    AnnData object augmented with
     {
         'V': ndarray
             sparse right eigenvectors as columns,
@@ -172,10 +185,13 @@ def sparse_cyclic_pca_masked(
     p = adata.n_vars
 
     sparsify = False if s is None else True
+    
+    X_zeroed = np.where(mask, 0.0, adata.X)
+    masked_mean = X_zeroed.sum(axis=0)/np.sum(~mask, axis=0)
 
-    Z = np.where(mask, adata.X.mean(axis=0), adata.X.copy())
+    Z = np.where(mask, masked_mean[None,:], adata.X)
 
-    rng = np.random.default_rng()
+    rng = np.random.default_rng(seed=seed)
     v_1 = rng.laplace(size=(p, 1))
     if scale_by_features:
         v_1 = v_1 * adata.var["std"].to_numpy()
@@ -225,7 +241,7 @@ def sparse_cyclic_pca_masked(
 
         if err <= tol:
             Z_imputed = d * (u_1 @ v_1.T + u_2 @ v_2.T)
-            Z[mask] = Z_imputed[mask]
+            Z = np.where(mask, Z_imputed, Z)
             rss_new = norm(Z - Z_imputed, ord="fro") ** 2
             err_z = np.abs(rss_new - rss) / rss
             rss = rss_new
