@@ -4,13 +4,15 @@ This module contains functions to process data, analyse data using sparse
 loading vectors, and analyse data using SPCA principal components.
 """
 
+from warnings import warn
+
 import anndata as ad
 import numpy as np
-from scipy.linalg import norm
-from warnings import warn
+from joblib import Parallel, delayed
 from scipy.interpolate import interp1d
-from joblib import delayed, Parallel
-from COFE.scpca import sparse_cyclic_pca_masked, sparse_cyclic_pca
+from scipy.linalg import norm
+
+from COFE.scpca import sparse_cyclic_pca, sparse_cyclic_pca_masked
 
 
 def preprocess_data(
@@ -48,7 +50,7 @@ def preprocess_data(
     ValueError
         if scaling_threshold is not int or float
     """
-
+    obs_names = adata.obs_names.copy()
     adata = adata[np.argsort(~adata.obs["train"]), :]
     adata.raw = adata
     X_train_ = adata.X[adata.obs["train"], :].copy()
@@ -92,7 +94,7 @@ def preprocess_data(
     if scale:
         adata.X = adata.X / adata.var["std"].to_numpy()[None, :]
 
-    return adata
+    return adata[obs_names, :].copy()
 
 
 def cross_validate(
@@ -211,7 +213,7 @@ def cross_validate(
                 backend_kwargs=dict(inner_max_num_threads=1),
             )(
                 delayed(_calculate_cv)(
-                    adata=adata,
+                    adata=adata_train,
                     s=cvp["lamb"],
                     tol=tol,
                     tol_z=tol_z,
@@ -352,7 +354,7 @@ def estimate_phase(adata, train=False):
         tuple containing the estimated phases of the samples and the
         median absolute error if true_times and period provided
     """
-    if "X_scpca" in adata.obsm.keys():
+    if "X_scpca" in adata.obsm:
         # Scaled angular positions
         Y = adata.obsm["X_scpca"]
         if all(adata.obs["train"]):
@@ -362,7 +364,7 @@ def estimate_phase(adata, train=False):
 
         mape_value = np.nan
 
-        if "time" in adata.obs_keys():
+        if "time" in adata.obs:
             # Scaled time values
             scaled_time = adata.obs["time"] / adata.uns["period"] % 1
 
